@@ -551,7 +551,7 @@ export const payReimbursement = async (req, res) => {
       );
       await client.query(
         `INSERT INTO reimbursement_timeline (reimbursement_id, status, timestamp, actor, completed) VALUES ($1, $2, $3, $4, $5)`,
-        [claimId, 'Paid', new Date().toLocaleString(), user.name, true]
+        [claimId, 'Paid', new Date().toISOString(), user.name, true]
       );
       await client.query('COMMIT');
   } catch (e) {

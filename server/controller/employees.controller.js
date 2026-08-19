@@ -25,12 +25,25 @@ const CreateEmployeeSchema = z.object({
   status: z.enum(['permanent', 'probation', 'contract', 'resignation_in_process']).optional(),
 });
 
+// Length-bounds the self-service profile fields so a malformed/oversized value can't be encrypted
+// and stored unchecked. No trimming or format coercion — a valid value is stored exactly as before.
+const UpdateProfileSchema = z.object({
+  uanNumber: z.string().max(30).optional().nullable(),
+  panNumber: z.string().max(20).optional().nullable(),
+  bankName: z.string().max(100).optional().nullable(),
+  bankAccount: z.string().max(34).optional().nullable(),
+  location: z.string().max(120).optional().nullable(),
+  state: z.string().max(120).optional().nullable(),
+});
+
 export const updateProfile = async (req, res) => {
   const user = req.user;
   // join_date is deliberately NOT accepted here: it is HR-owned and drives earned-leave
   // accrual, so letting an employee backdate their own start date would inflate paid leave.
   // It can only be changed via the HR employee editor (which requires employees.edit).
-  const { uanNumber, panNumber, bankName, bankAccount, location, state } = req.body;
+  const parsed = UpdateProfileSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message });
+  const { uanNumber, panNumber, bankName, bankAccount, location, state } = parsed.data;
   // Encrypt the sensitive identity/bank fields at rest (bank_name / location / state are not
   // sensitive and stay plaintext for display and filtering).
   await pool.query(
@@ -103,18 +116,28 @@ export const createLoan = async (req, res) => {
   if (!employeeId || !principal || !monthlyInstalment || !startMonth) {
     return res.status(400).json({ error: 'employeeId, principal, monthlyInstalment and startMonth are all required.' });
   }
-  const parsedPrincipal = parseFloat(principal);
-  const parsedInstalment = parseFloat(monthlyInstalment);
+  if (String(startMonth).length > 20) {
+    return res.status(400).json({ error: 'startMonth is invalid.' });
+  }
+  // Number() (not parseFloat) so a value like "100abc" is rejected instead of silently becoming 100.
+  const parsedPrincipal = Number(principal);
+  const parsedInstalment = Number(monthlyInstalment);
   if (!(parsedPrincipal > 0) || !(parsedInstalment > 0)) {
     return res.status(400).json({ error: 'Principal and monthly instalment must be positive numbers.' });
   }
 
   const id = 'loan-' + crypto.randomUUID();
   // remaining_balance starts equal to the principal — payroll deducts from it each run.
-  await pool.query(
-    'INSERT INTO loans (id, employee_id, principal, monthly_instalment, remaining_balance, start_month) VALUES ($1, $2, $3, $4, $5, $6)',
-    [id, employeeId, parsedPrincipal, parsedInstalment, parsedPrincipal, startMonth]
-  );
+  try {
+    await pool.query(
+      'INSERT INTO loans (id, employee_id, principal, monthly_instalment, remaining_balance, start_month) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, employeeId, parsedPrincipal, parsedInstalment, parsedPrincipal, startMonth]
+    );
+  } catch (e) {
+    // Foreign-key violation => the employee id doesn't exist. Return a clean 400, not a raw 500.
+    if (e.code === '23503') return res.status(400).json({ error: 'That employee does not exist.' });
+    throw e;
+  }
   res.json({ success: true, id });
 };
 

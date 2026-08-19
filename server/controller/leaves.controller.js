@@ -32,6 +32,14 @@ export const createLeaveRequest = async (req, res) => {
       return res.status(400).json({ error: 'You cannot apply for leave on a date that has already passed. Ask HR to adjust a past day.' });
   }
 
+  // Serialize concurrent leave submissions for the SAME employee. Without this, two requests
+  // fired at once could both read the same remaining balance and both consume it (over-granting
+  // paid leave) or both pass the overlap check. A per-employee advisory lock closes that race;
+  // the try/finally guarantees it is released on every exit path (including the early 400s).
+  const lockClient = await pool.connect();
+  await lockClient.query('SELECT pg_advisory_lock(hashtext($1))', ['leave:' + user.id]);
+  try {
+
   const dbUser = (await pool.query('SELECT * FROM users WHERE id = $1', [user.id])).rows[0];
   
   // Check overlapping leaves for the same employee
@@ -53,12 +61,12 @@ export const createLeaveRequest = async (req, res) => {
       const end = new Date(toDate);
       while (curr <= end) {
           const dateStr = curr.toISOString().split('T')[0];
-          const isWeekend = curr.getDay() === 0 || curr.getDay() === 6;
+          const isWeekend = curr.getUTCDay() === 0 || curr.getUTCDay() === 6;
           const isHoliday = holidaysList.includes(dateStr);
           if (!isWeekend && !isHoliday) {
               actualDays++;
           }
-          curr.setDate(curr.getDate() + 1);
+          curr.setUTCDate(curr.getUTCDate() + 1);
       }
   }
   
@@ -155,6 +163,10 @@ export const createLeaveRequest = async (req, res) => {
       }
     }
     serverError(res, err, "Failed to submit leave. Please try again.");
+  }
+  } finally {
+    await lockClient.query('SELECT pg_advisory_unlock(hashtext($1))', ['leave:' + user.id]).catch(() => {});
+    lockClient.release();
   }
 };
 
