@@ -11,6 +11,20 @@ import { storage } from '../services/storage.js';
 import { HttpResponse } from '../utils/httpresponse.js';
 import crypto from 'crypto';
 
+// Safely extract HH:MM from a stored TEXT timestamp. Stored timestamps are usually ISO
+// ('YYYY-MM-DDTHH:MM:...'), but a date-only or space-separated value would make the old
+// `.split('T')[1].substring(0,5)` throw and 500 an entire month's export. Falls back to '-'.
+const hhmmFromTs = (ts) => {
+  if (!ts || typeof ts !== 'string') return '-';
+  const t = ts.split('T')[1];
+  return t ? t.substring(0, 5) : '-';
+};
+
+// A YYYY-MM month string must be well-formed before it drives date math; a malformed value used
+// to silently produce empty/garbage reports (parseInt -> NaN). Returns true when the value is bad.
+const isBadMonth = (m) => !/^\d{4}-\d{2}$/.test(String(m));
+const isBadDate = (d) => !/^\d{4}-\d{2}-\d{2}$/.test(String(d));
+
 export const punch = async (req, res) => {
   const user = req.user;
   const { punchType, latitude, longitude, address, workMode, officeLocation, selfieBase64 } = req.body;
@@ -84,7 +98,8 @@ export const getPunchesStatus = async (req, res) => {
 
 export const exportPunches = async (req, res) => {
   const user = req.user;
-  const month = req.query.month || new Date().toISOString().substring(0, 7); 
+  const month = req.query.month || new Date().toISOString().substring(0, 7);
+  if (req.query.month && isBadMonth(req.query.month)) return res.status(400).json({ error: 'Invalid month. Expected YYYY-MM.' }); 
   const employeeFilter = req.query.employee || '';
   const searchFilter = req.query.search || '';
   
@@ -149,8 +164,8 @@ export const exportPunches = async (req, res) => {
           else if (userPunches.length > 0) status = 'P';
           else if (dateObj.getDay() === 0 || dateObj.getDay() === 6) status = 'WO';
           
-          const firstTime = firstPunch ? firstPunch.timestamp.split('T')[1].substring(0, 5) : '-';
-          const lastTime = outPunch ? outPunch.timestamp.split('T')[1].substring(0, 5) : '-';
+          const firstTime = hhmmFromTs(firstPunch?.timestamp);
+          const lastTime = hhmmFromTs(outPunch?.timestamp);
           
           let total = '00:00';
           if (firstPunch && outPunch) {
@@ -176,7 +191,8 @@ export const exportPunches = async (req, res) => {
 };
 
 export const exportDailyHistory = async (req, res) => {
-  const month = req.query.month || new Date().toISOString().substring(0, 7); 
+  const month = req.query.month || new Date().toISOString().substring(0, 7);
+  if (req.query.month && isBadMonth(req.query.month)) return res.status(400).json({ error: 'Invalid month. Expected YYYY-MM.' }); 
   const users = (await pool.query("SELECT id, employee_id as emp_id, name, email FROM users WHERE role != 'super_admin' AND status != 'rejected'")).rows;
   const punches = (await pool.query("SELECT user_id, punch_type, timestamp, address FROM attendance_punches WHERE timestamp LIKE $1 ORDER BY timestamp ASC", [month + '%'])).rows;
   
@@ -194,7 +210,7 @@ export const exportDailyHistory = async (req, res) => {
           
           const inPunch = userDayPunches[0];
           const outPunch = userDayPunches.length > 1 ? userDayPunches[userDayPunches.length - 1] : null;
-          const inTime = inPunch ? inPunch.timestamp.split('T')[1].substring(0, 5) : '-';
+          const inTime = hhmmFromTs(inPunch?.timestamp);
           const inLoc = inPunch && inPunch.address ? inPunch.address : '-';
 
           let outTime = '-';
@@ -202,7 +218,7 @@ export const exportDailyHistory = async (req, res) => {
           let hours = '-';
 
           if (outPunch && outPunch.punch_type === 'OUT') {
-              outTime = outPunch.timestamp.split('T')[1].substring(0, 5);
+              outTime = hhmmFromTs(outPunch.timestamp);
               outLoc = outPunch.address ? outPunch.address : '-';
               const inD = new Date(inPunch.timestamp);
               const outD = new Date(outPunch.timestamp);
@@ -364,6 +380,7 @@ export const updatePenaltyStatus = async (req, res) => {
 
 export const getDetailedAttendance = async (req, res) => {
   const dateStr = req.query.date || new Date().toISOString().split('T')[0];
+  if (req.query.date && isBadDate(req.query.date)) return res.status(400).json({ error: 'Invalid date. Expected YYYY-MM-DD.' });
   const users = (await pool.query("SELECT id, name, employee_id FROM users WHERE role != 'super_admin' AND status != 'rejected'")).rows;
   const punches = (await pool.query("SELECT user_id, punch_type, timestamp, address, latitude, longitude, work_mode, selfie_url FROM attendance_punches WHERE timestamp LIKE $1 ORDER BY timestamp ASC", [dateStr + '%'])).rows;
   const records = (await pool.query("SELECT employee_id, in_time, out_time FROM attendance_records WHERE date = $1", [dateStr])).rows;
@@ -455,6 +472,7 @@ export const getDetailedAttendance = async (req, res) => {
 export const getMonthlyEmployeeAttendance = async (req, res) => {
   const employeeId = req.params.id;
   const month = req.query.month || new Date().toISOString().substring(0, 7);
+  if (req.query.month && isBadMonth(req.query.month)) return res.status(400).json({ error: 'Invalid month. Expected YYYY-MM.' });
   
   const year = parseInt(month.substring(0, 4));
   const monthIdx = parseInt(month.substring(5, 7)) - 1;
@@ -746,7 +764,7 @@ export const getAttendanceSummaryRecords = async (req, res) => {
   }
 
   const records = (await pool.query(query, params)).rows.map((r) => ({
-      employeeId: r.employeeId.replace('usr-', '').toUpperCase(),
+      employeeId: (r.employeeId || '').replace('usr-', '').toUpperCase(),
       name: r.name,
       department: r.department || 'N/A',
       totalMarks: r.totalMarks || 0,

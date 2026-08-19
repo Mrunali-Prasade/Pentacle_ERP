@@ -230,7 +230,7 @@ export const runPayroll = async (req, res) => {
       await client.query('DELETE FROM payslips WHERE pay_period = $1', [currentMonth]);
 
       const employees = (await client.query(`
-          SELECT u.id, u.name, s.monthly_salary,
+          SELECT u.id, u.name, COALESCE(s.monthly_salary, 0) as monthly_salary,
                  COALESCE(a.awol_days, 0) as awol,
                  COALESCE(a.deduction_amount, 0) as deduction_amount
           FROM users u

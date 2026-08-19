@@ -15,7 +15,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CreateReimbursementSchema = z.object({
-  expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expense date must be YYYY-MM-DD'),
+  expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expense date must be YYYY-MM-DD')
+    // The regex alone accepts impossible dates like 2026-02-30, which then become NaN and slip
+    // past the cut-off check. Confirm it is a real calendar date.
+    .refine((s) => { const d = new Date(s + 'T00:00:00Z'); return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s; }, 'Expense date is not a real calendar date'),
   category: z.string().min(1, 'Category is required').max(100),
   amount: z.coerce.number().positive('Amount must be greater than zero').max(10_000_000, 'Amount is too large'),
   description: z.string().max(1000).optional(),
