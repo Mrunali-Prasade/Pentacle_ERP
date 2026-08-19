@@ -264,28 +264,47 @@ export const updateBulkPenaltyStatus = async (req, res) => {
       const client = await pool.connect();
       try {
           await client.query('BEGIN');
-          for (const id of ids) {
-              const log = (await client.query(
-                  `SELECT p.date, p.employee_id, p.penalty_action_by_role, u.role as employee_role
-                   FROM attendance_daily_logs p JOIN users u ON u.id = p.employee_id WHERE p.id = $1`,
-                  [id]
-              )).rows[0];
-              if (log && log.date) {
-                  if (log.penalty_action_by_role === 'cfo' && req.user.role !== 'cfo') continue;
-                  // Cannot action your own penalty (identity check — covers every role/permission).
-                  if (log.employee_id === req.user.id) continue;
-                  // No HR admin can approve/waive another HR admin's attendance penalty.
-                  // Silently skipped in bulk actions, same as the CFO-lock rule above.
-                  if (log.employee_role === 'admin_hr' && req.user.role === 'admin_hr') continue;
-                  const month = log.date.substring(0, 7);
-                  const run = (await client.query('SELECT status FROM payroll_runs WHERE month = $1', [month])).rows[0];
-                  if (run && run.status === 'locked') continue;
+          // Fetch every requested log in ONE query instead of one-per-id inside the loop (an N+1
+          // that held the transaction open and got slow on large bulk actions).
+          const logs = (await client.query(
+              `SELECT p.id, p.date, p.employee_id, p.penalty_action_by_role, u.role as employee_role
+               FROM attendance_daily_logs p JOIN users u ON u.id = p.employee_id WHERE p.id = ANY($1)`,
+              [ids]
+          )).rows;
 
-                  const actionByRole = req.user.role === 'cfo' ? 'cfo' : log.penalty_action_by_role;
-                  await client.query('UPDATE attendance_daily_logs SET penalty_status = $1, penalty_action_by_role = $2 WHERE id = $3', [status, actionByRole, id]);
-                  monthsToRecalculate.add(`${month}|${log.employee_id}`);
-                  updated++;
+          // One query for the lock status of every month involved.
+          const months = [...new Set(logs.filter(l => l.date).map(l => l.date.substring(0, 7)))];
+          const lockedMonths = new Set(
+              months.length
+                  ? (await client.query('SELECT month FROM payroll_runs WHERE status = $1 AND month = ANY($2)', ['locked', months])).rows.map(r => r.month)
+                  : []
+          );
+
+          // Same per-log skip rules as before, applied in memory.
+          const passIds = [];
+          for (const log of logs) {
+              if (!log.date) continue;
+              if (log.penalty_action_by_role === 'cfo' && req.user.role !== 'cfo') continue;
+              // Cannot action your own penalty (identity check — covers every role/permission).
+              if (log.employee_id === req.user.id) continue;
+              // No HR admin can approve/waive another HR admin's attendance penalty.
+              if (log.employee_role === 'admin_hr' && req.user.role === 'admin_hr') continue;
+              const month = log.date.substring(0, 7);
+              if (lockedMonths.has(month)) continue;
+              passIds.push(log.id);
+              monthsToRecalculate.add(`${month}|${log.employee_id}`);
+          }
+
+          if (passIds.length) {
+              // One bulk UPDATE. When the actor is the CFO every row's action-role becomes 'cfo';
+              // otherwise each row keeps its existing action-role (the old code set it to its own
+              // current value — a no-op), so we simply leave that column untouched.
+              if (req.user.role === 'cfo') {
+                  await client.query('UPDATE attendance_daily_logs SET penalty_status = $1, penalty_action_by_role = $2 WHERE id = ANY($3)', [status, 'cfo', passIds]);
+              } else {
+                  await client.query('UPDATE attendance_daily_logs SET penalty_status = $1 WHERE id = ANY($2)', [status, passIds]);
               }
+              updated = passIds.length;
           }
           await client.query('COMMIT');
       } catch (e) {

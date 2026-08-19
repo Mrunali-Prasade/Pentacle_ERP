@@ -107,13 +107,30 @@ async function runRecalculation(targetMonth, employeeId = null) {
   const holidaysRes = await pool.query('SELECT date FROM holidays');
   const holidays = holidaysRes.rows.map(h => h.date);
 
+  // Batch-fetch every employee's records / punches / leaves for the month in ONE query each,
+  // instead of three queries PER employee inside the loop below. A full-company recalculation
+  // used to make ~3 x headcount round-trips to the database (slow, and a serverless-timeout
+  // risk on large headcounts); now it makes 3. The per-employee data is identical — only the
+  // number of round-trips changes.
+  const empIds = users.map(u => u.employee_id);
+  const recordsByEmp = new Map();
+  const punchesByEmp = new Map();
+  const leavesByEmp = new Map();
+  if (empIds.length) {
+      const recRows = (await pool.query("SELECT employee_id, date, in_time, out_time, awol FROM attendance_records WHERE employee_id = ANY($1) AND date LIKE $2", [empIds, targetMonth + '%'])).rows;
+      for (const r of recRows) { if (!recordsByEmp.has(r.employee_id)) recordsByEmp.set(r.employee_id, []); recordsByEmp.get(r.employee_id).push(r); }
+      const punchRows = (await pool.query("SELECT user_id, timestamp, punch_type, work_mode FROM attendance_punches WHERE user_id = ANY($1) AND timestamp LIKE $2", [empIds, targetMonth + '%'])).rows;
+      for (const p of punchRows) { if (!punchesByEmp.has(p.user_id)) punchesByEmp.set(p.user_id, []); punchesByEmp.get(p.user_id).push(p); }
+      const leaveRows = (await pool.query("SELECT employee_id, from_date, to_date, status FROM leave_requests WHERE employee_id = ANY($1) AND status = 'Approved'", [empIds])).rows;
+      for (const l of leaveRows) { if (!leavesByEmp.has(l.employee_id)) leavesByEmp.set(l.employee_id, []); leavesByEmp.get(l.employee_id).push(l); }
+  }
+
+  const summaryRows = [];
+
   for (const u of users) {
-      const recordsRes = await pool.query("SELECT date, in_time, out_time, awol FROM attendance_records WHERE employee_id = $1 AND date LIKE $2", [u.employee_id, targetMonth + '%']);
-      const records = recordsRes.rows;
-      const punchesRes = await pool.query("SELECT timestamp, punch_type, work_mode FROM attendance_punches WHERE user_id = $1 AND timestamp LIKE $2", [u.employee_id, targetMonth + '%']);
-      const punches = punchesRes.rows;
-      const leavesRes = await pool.query("SELECT from_date, to_date, status FROM leave_requests WHERE employee_id = $1 AND status = 'Approved'", [u.employee_id]);
-      const leaves = leavesRes.rows;
+      const records = recordsByEmp.get(u.employee_id) || [];
+      const punches = punchesByEmp.get(u.employee_id) || [];
+      const leaves = leavesByEmp.get(u.employee_id) || [];
       
       let lateMarks = 0;
       let earlyMarks = 0;
@@ -266,11 +283,23 @@ async function runRecalculation(targetMonth, employeeId = null) {
       }
 
 
-      const summaryId = 'sum-' + Math.floor(Math.random() * 1000000);
+      summaryRows.push([
+        'sum-' + u.employee_id + '-' + targetMonth, u.employee_id, targetMonth,
+        (lateMarks + earlyMarks), lateMarks, earlyMarks, halfDays, awolDays, approvedDeductionsAmount,
+      ]);
+  }
+
+  if (summaryRows.length > 0) {
+      // One multi-row INSERT for the whole company instead of one INSERT per employee.
+      const cols = 9;
+      const valuesSql = summaryRows
+        .map((_, i) => `(${Array.from({ length: cols }, (_, c) => `$${i * cols + c + 1}`).join(', ')})`)
+        .join(', ');
       await pool.query(
-        `INSERT INTO attendance_summaries (id, employee_id, month, marks_used, late_marks, early_marks, half_day_deductions, awol_days, deduction_amount) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, 
-        [summaryId, u.employee_id, targetMonth, (lateMarks + earlyMarks), lateMarks, earlyMarks, halfDays, awolDays, approvedDeductionsAmount]
+        `INSERT INTO attendance_summaries
+           (id, employee_id, month, marks_used, late_marks, early_marks, half_day_deductions, awol_days, deduction_amount)
+         VALUES ${valuesSql}`,
+        summaryRows.flat()
       );
   }
   }
