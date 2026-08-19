@@ -151,6 +151,16 @@ pool.query('ALTER TABLE global_policy ADD COLUMN IF NOT EXISTS required_shift_ho
 pool.query('ALTER TABLE global_policy ADD COLUMN IF NOT EXISTS free_marks_allowance INTEGER NOT NULL DEFAULT 3')
   .catch(() => {});
 
+// Loan-payment ledger (makes payroll re-runs idempotent — see runPayroll). Created here so
+// existing databases get it without a manual migration; also defined in schema.sql for fresh ones.
+pool.query(`CREATE TABLE IF NOT EXISTS loan_payments (
+    id TEXT PRIMARY KEY,
+    loan_id TEXT NOT NULL,
+    pay_period TEXT NOT NULL,
+    amount REAL NOT NULL
+)`).then(() => pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_payments_unique ON loan_payments (loan_id, pay_period)'))
+  .catch((e) => console.error('[Migrate] loan_payments:', e.message));
+
 // The attendance rules read global_policy WHERE id = 1. Without that row every setting
 // silently falls back to a hardcoded default and the admin policy screen has nothing to edit.
 pool.query(`

@@ -224,6 +224,18 @@ CREATE TABLE IF NOT EXISTS loans (
     FOREIGN KEY(employee_id) REFERENCES users(id)
 );
 
+-- Ledger of loan instalments deducted by each payroll run, one row per (loan, month). Lets a
+-- payroll re-run undo exactly what a prior run of the same month deducted, so loans are never
+-- double-charged. See runPayroll in controller/payroll.controller.js.
+CREATE TABLE IF NOT EXISTS loan_payments (
+    id TEXT PRIMARY KEY,
+    loan_id TEXT NOT NULL,
+    pay_period TEXT NOT NULL,
+    amount REAL NOT NULL,
+    FOREIGN KEY(loan_id) REFERENCES loans(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_payments_unique ON loan_payments (loan_id, pay_period);
+
 -- =============================================================================
 -- GRANULAR PERMISSIONS
 -- Roles (users.role) still gate access by default via role_permissions. This layer

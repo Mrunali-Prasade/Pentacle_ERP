@@ -326,15 +326,30 @@ export const updateEmployeeSalary = async (req, res) => {
       return res.status(403).json({ error: 'You cannot change your own salary. Another authoriser must do it.' });
   }
 
-  const existing = (await pool.query('SELECT id FROM salary_structures WHERE employee_id = $1', [id])).rows[0];
+  const client = await pool.connect();
+  try {
+      await client.query('BEGIN');
+      // Serialize concurrent salary edits for the SAME employee. Without this, two near-simultaneous
+      // saves could both see "no existing row" and both INSERT, leaving duplicate salary_structures
+      // rows — which then makes "latest salary" ambiguous and can feed the wrong figure into payroll.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['salary:' + id]);
 
-  if (existing) {
-      await pool.query('UPDATE salary_structures SET monthly_salary = $1 WHERE employee_id = $2', [monthlySalary, id]);
-  } else {
-      const salaryId = 'sal-' + Math.floor(Math.random() * 100000);
-      await pool.query('INSERT INTO salary_structures (id, employee_id, monthly_salary, effective_from) VALUES ($1, $2, $3, $4)', [
-          salaryId, id, monthlySalary, new Date().toISOString().split('T')[0]
-      ]);
+      const existing = (await client.query('SELECT id FROM salary_structures WHERE employee_id = $1', [id])).rows[0];
+      if (existing) {
+          await client.query('UPDATE salary_structures SET monthly_salary = $1 WHERE employee_id = $2', [monthlySalary, id]);
+      } else {
+          // Deterministic id keyed to the employee: with one salary row per employee it is unique and
+          // can never collide (the old random 'sal-'+5-digit could, at volume).
+          await client.query('INSERT INTO salary_structures (id, employee_id, monthly_salary, effective_from) VALUES ($1, $2, $3, $4)', [
+              'sal-' + id, id, monthlySalary, new Date().toISOString().split('T')[0]
+          ]);
+      }
+      await client.query('COMMIT');
+  } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+  } finally {
+      client.release();
   }
 
   res.json({ success: true, monthlySalary });

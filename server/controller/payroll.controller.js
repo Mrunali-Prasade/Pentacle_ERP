@@ -57,6 +57,16 @@ export const updatePayslip = async (req, res) => {
       const { id } = req.params;
       const { basicSalary, hra, specialAllowance, conveyanceAllowance, otherAllowance, bonus, providentFund, professionalTax, incomeTax, lopDeduction, otherDeductions, grossAmount, grossDeduction, netAmount, amountToBank } = req.body;
 
+      // Every field below is money written straight onto the payslip. Reject anything that isn't a
+      // non-negative number so a malformed request can't store NaN / negative / string take-home pay.
+      const moneyFields = { basicSalary, hra, specialAllowance, conveyanceAllowance, otherAllowance, bonus, providentFund, professionalTax, incomeTax, lopDeduction, otherDeductions, grossAmount, grossDeduction, netAmount, amountToBank };
+      for (const [field, value] of Object.entries(moneyFields)) {
+          const n = Number(value);
+          if (!Number.isFinite(n) || n < 0) {
+              return res.status(400).json({ error: `Invalid ${field}: must be a non-negative number.` });
+          }
+      }
+
       const slip = (await pool.query(
           'SELECT p.user_id, p.pay_period, p.status, p.net_amount, u.name as employee_name FROM payslips p JOIN users u ON u.id = p.user_id WHERE p.id = $1',
           [id]
@@ -101,7 +111,7 @@ export const updatePayslip = async (req, res) => {
 // month's gross, applies the slab rates + 4% cess, then divides by 12. It ignores investment
 // declarations, HRA exemption and Section 80 deductions, so it is a starting estimate only —
 // Finance/CFO can correct any individual payslip afterward via the Edit Payslip screen.
-function estimateMonthlyTDS(monthlyGross) {
+export function estimateMonthlyTDS(monthlyGross) {
   const STANDARD_DEDUCTION = 75000;
   const annualGross = monthlyGross * 12;
   const taxableIncome = Math.max(0, annualGross - STANDARD_DEDUCTION);
@@ -130,6 +140,39 @@ function estimateMonthlyTDS(monthlyGross) {
   return Math.round(tax / 12);
 }
 
+// Pure payroll math for ONE employee — no database, no side effects — so it can be unit-tested
+// and its numbers locked against accidental change. runPayroll calls this and then handles the
+// loan deduction + payslip insert separately. Inputs: monthlySalary (from salary_structures),
+// calendarDays (days in the month), absentDays (AWOL + this month's unpaid-leave days), and
+// isFebruary (professional-tax is ₹300 in Feb, ₹200 otherwise).
+export function calculatePayslip({ monthlySalary, calendarDays, absentDays, isFebruary }) {
+  const paidDays = Math.max(0, calendarDays - absentDays);
+  const earnedGrossAmount = Math.round((monthlySalary / calendarDays) * paidDays);
+
+  const basicSalary = Math.round(earnedGrossAmount * 0.50);
+  const hra = Math.round(earnedGrossAmount * 0.10);
+  const conveyanceAllowance = Math.round(earnedGrossAmount * 0.05);
+  const otherAllowance = Math.round(earnedGrossAmount * 0.20);
+  const specialAllowance = earnedGrossAmount - (basicSalary + hra + conveyanceAllowance + otherAllowance);
+
+  const providentFund = Math.round(basicSalary * 0.12);
+  const totalEmployerContrib = Math.round(basicSalary * 0.12);
+  const pension = Math.round(Math.min(1250, basicSalary * 0.0833));
+  const employerPf = totalEmployerContrib - pension;
+
+  const professionalTax = (earnedGrossAmount < 7500) ? 0 : (isFebruary ? 300 : 200);
+  const incomeTax = estimateMonthlyTDS(monthlySalary);
+  const grossDeduction = professionalTax + providentFund + employerPf + pension + incomeTax;
+
+  const netAmount = earnedGrossAmount - grossDeduction;
+
+  return {
+    paidDays, earnedGrossAmount, basicSalary, hra, conveyanceAllowance, otherAllowance,
+    specialAllowance, providentFund, employerPf, pension, professionalTax, incomeTax,
+    grossDeduction, netAmount,
+  };
+}
+
 export const runPayroll = async (req, res) => {
   const recentSummary = (await pool.query('SELECT month FROM attendance_summaries ORDER BY month DESC LIMIT 1')).rows[0];
   // Prefer the month the caller selected (the modal's month picker); fall back to the latest
@@ -146,27 +189,6 @@ export const runPayroll = async (req, res) => {
       return res.status(400).json({ error: `Payroll for ${currentMonth} can only be run once the month has ended.` });
   }
 
-  // Re-running deletes and regenerates every payslip for the month. If the month is locked
-  // that would destroy signed-off records (and re-deduct loan instalments), so refuse.
-  const lockRow = (await pool.query('SELECT status FROM payroll_runs WHERE month = $1', [currentMonth])).rows[0];
-  if (lockRow && lockRow.status === 'locked') {
-      return res.status(400).json({ error: `Payroll for ${currentMonth} is locked and cannot be re-run. Unlock it first if you genuinely need to regenerate it.` });
-  }
-
-  const existingRun = (await pool.query('SELECT id FROM payslips WHERE pay_period = $1 LIMIT 1', [currentMonth])).rows[0];
-  if (existingRun) {
-      await pool.query('DELETE FROM payslips WHERE pay_period = $1', [currentMonth]);
-  }
-
-  const employees = (await pool.query(`
-      SELECT u.id, u.name, s.monthly_salary,
-             COALESCE(a.awol_days, 0) as awol,
-             COALESCE(a.deduction_amount, 0) as deduction_amount
-      FROM users u
-      JOIN salary_structures s ON u.id = s.employee_id
-      LEFT JOIN attendance_summaries a ON u.id = a.employee_id AND a.month = $1
-  `, [currentMonth])).rows;
-
   let processedCount = 0;
   const [yearPart, monthPart] = currentMonth.split('-');
   const isFebruary = monthPart === '02';
@@ -177,6 +199,44 @@ export const runPayroll = async (req, res) => {
   const client = await pool.connect();
   try {
       await client.query('BEGIN');
+
+      // Serialize concurrent runs of the SAME month. Without this, two near-simultaneous requests
+      // (e.g. a double-click) could both pass the checks below and both delete+insert, producing
+      // duplicate payslips and double-deducting loans. The lock releases automatically on COMMIT/
+      // ROLLBACK. Because every read-then-write below now lives inside this one transaction, the
+      // whole run is atomic — if anything fails, the previous run's payslips stay intact.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['payroll:' + currentMonth]);
+
+      // Re-running regenerates every payslip for the month. If the month is locked that would
+      // destroy signed-off records, so refuse.
+      const lockRow = (await client.query('SELECT status FROM payroll_runs WHERE month = $1', [currentMonth])).rows[0];
+      if (lockRow && lockRow.status === 'locked') {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: `Payroll for ${currentMonth} is locked and cannot be re-run. Unlock it first if you genuinely need to regenerate it.` });
+      }
+
+      // Idempotent loan handling: undo any loan instalments a PREVIOUS run of this same month
+      // deducted (add them back to the balance), then clear that month's ledger. Fresh deductions
+      // and ledger rows are written again in the loop below, so a loan is only ever charged once
+      // per month no matter how many times payroll is run.
+      await client.query(
+          'UPDATE loans SET remaining_balance = remaining_balance + lp.amount FROM loan_payments lp WHERE loans.id = lp.loan_id AND lp.pay_period = $1',
+          [currentMonth]
+      );
+      await client.query('DELETE FROM loan_payments WHERE pay_period = $1', [currentMonth]);
+
+      // Remove the month's existing payslips — now INSIDE the transaction, so if regeneration
+      // fails, this delete rolls back too and the previous payslips survive.
+      await client.query('DELETE FROM payslips WHERE pay_period = $1', [currentMonth]);
+
+      const employees = (await client.query(`
+          SELECT u.id, u.name, s.monthly_salary,
+                 COALESCE(a.awol_days, 0) as awol,
+                 COALESCE(a.deduction_amount, 0) as deduction_amount
+          FROM users u
+          JOIN salary_structures s ON u.id = s.employee_id
+          LEFT JOIN attendance_summaries a ON u.id = a.employee_id AND a.month = $1
+      `, [currentMonth])).rows;
 
       // Batch-fetch the two per-employee lookups up front — one query each for the whole
       // headcount instead of one query per employee. This is the whole point of the change:
@@ -216,25 +276,11 @@ export const runPayroll = async (req, res) => {
           const unpaidLeaveDays = (leaveMap.has(emp.id) ? leaveMap.get(emp.id) : null) || 0;
 
           const absentDays = emp.awol + unpaidLeaveDays;
-          const paidDays = Math.max(0, calendarDays - absentDays);
-          const earnedGrossAmount = Math.round((monthlySalary / calendarDays) * paidDays);
-
-          const basicSalary = Math.round(earnedGrossAmount * 0.50);
-          const hra = Math.round(earnedGrossAmount * 0.10);
-          const conveyanceAllowance = Math.round(earnedGrossAmount * 0.05);
-          const otherAllowance = Math.round(earnedGrossAmount * 0.20);
-          const specialAllowance = earnedGrossAmount - (basicSalary + hra + conveyanceAllowance + otherAllowance);
-
-          const providentFund = Math.round(basicSalary * 0.12);
-          const totalEmployerContrib = Math.round(basicSalary * 0.12);
-          const pension = Math.round(Math.min(1250, basicSalary * 0.0833));
-          const employerPf = totalEmployerContrib - pension;
-
-          const professionalTax = (earnedGrossAmount < 7500) ? 0 : (isFebruary ? 300 : 200);
-          const incomeTax = estimateMonthlyTDS(monthlySalary);
-          const grossDeduction = professionalTax + providentFund + employerPf + pension + incomeTax;
-
-          const netAmount = earnedGrossAmount - grossDeduction;
+          const {
+              paidDays, earnedGrossAmount, basicSalary, hra, conveyanceAllowance, otherAllowance,
+              specialAllowance, providentFund, employerPf, pension, professionalTax, incomeTax,
+              grossDeduction, netAmount,
+          } = calculatePayslip({ monthlySalary, calendarDays, absentDays, isFebruary });
 
           // Deduct this month's installment from any active loan (remaining_balance > 0),
           // and pay down that balance so future runs stop deducting once it's cleared.
@@ -247,6 +293,12 @@ export const runPayroll = async (req, res) => {
               const thisPayment = Math.min(loan.monthly_instalment, loan.remaining_balance);
               loanInstalment += thisPayment;
               await client.query('UPDATE loans SET remaining_balance = remaining_balance - $1 WHERE id = $2', [thisPayment, loan.id]);
+              // Record this payment so a future re-run of the same month can undo exactly it.
+              // Deterministic id (loan+month) is safe: this month's ledger was cleared just above.
+              await client.query(
+                  'INSERT INTO loan_payments (id, loan_id, pay_period, amount) VALUES ($1, $2, $3, $4)',
+                  ['lpay-' + loan.id + '-' + currentMonth, loan.id, currentMonth, thisPayment]
+              );
           }
 
           const amountToBank = netAmount - loanInstalment;
