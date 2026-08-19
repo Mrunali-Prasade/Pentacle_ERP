@@ -1,0 +1,58 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env*
+!.env.example
+
+# Uploaded files (receipts, payment proofs, identity documents) — never commit real user data
+server/uploads/
+
+# SQLite databases (project uses Postgres in production)
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Development scratch and debug files
+scratch/
+dump.txt
+temp.txt
+out.txt
+
+# One-time migration and seeding scripts
+seed*.ts
+seed*.cjs
+migrate*.ts
+migrate*.cjs
+init-pg.ts
+fix-db*.ts
+fix_db*.ts
+
+# One-off debug/check/fix scripts
+check*.cjs
+check*.js
+fix*.cjs
+fix*.js
+wipe*.cjs
+wipe*.js
+clear*.cjs
+clear*.js
+test_*.cjs
+test_*.js
+update_*.cjs
+query*.cjs
+query*.js
+recalc*.log
+
+# Temp text dumps
+*.txt
+!README.md
