@@ -187,9 +187,13 @@ export const runPayroll = async (req, res) => {
       const leaveMap = new Map();
       const loansByEmp = new Map();
       if (empIds.length) {
+          // Only THIS month's unpaid leave. Previously this summed every approved unpaid-leave
+          // day the employee had ever taken (no date filter), so each payroll run re-deducted all
+          // past unpaid leave and progressively over-charged people. A leave is attributed to the
+          // month of its from_date — the same convention the leave screens use elsewhere.
           const leaveRows = (await client.query(
-              "SELECT employee_id, SUM(unpaid_days) AS lops FROM leave_requests WHERE status = 'Approved' AND employee_id = ANY($1) GROUP BY employee_id",
-              [empIds]
+              "SELECT employee_id, SUM(unpaid_days) AS lops FROM leave_requests WHERE status = 'Approved' AND from_date LIKE $2 AND employee_id = ANY($1) GROUP BY employee_id",
+              [empIds, currentMonth + '%']
           )).rows;
           for (const r of leaveRows) leaveMap.set(r.employee_id, r.lops);
 
