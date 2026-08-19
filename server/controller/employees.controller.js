@@ -390,6 +390,16 @@ export const deleteEmployee = async (req, res) => {
       await client.query('DELETE FROM salary_structures WHERE employee_id = $1', [id]);
       await client.query('DELETE FROM payslips WHERE user_id = $1', [id]);
       await client.query('DELETE FROM users WHERE id = $1', [id]);
+      // Audit trail written inside the SAME transaction — an irreversible deletion must never
+      // commit without its record of who removed whom (previously this ran after COMMIT and could
+      // silently fail, leaving a deletion with no trail).
+      await client.query(
+          `INSERT INTO audit_logs (id, timestamp, actor, role, module, change_description, before_value, after_value)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          ['AL-' + crypto.randomUUID(), new Date().toISOString().replace('T', ' ').substring(0, 19),
+           req.user.name, req.user.role, 'Employee Directory',
+           `Deleted employee ${target.name} (${target.role})`, target.name, null]
+      );
       await client.query('COMMIT');
   } catch (e) {
       await client.query('ROLLBACK').catch(() => {});
@@ -398,16 +408,6 @@ export const deleteEmployee = async (req, res) => {
   } finally {
       client.release();
   }
-
-  // Record the deletion — this is irreversible and destroys payroll/attendance history, so
-  // there must at least be a trail of who removed whom.
-  await pool.query(
-      `INSERT INTO audit_logs (id, timestamp, actor, role, module, change_description, before_value, after_value)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      ['AL-' + crypto.randomUUID(), new Date().toISOString().replace('T', ' ').substring(0, 19),
-       req.user.name, req.user.role, 'Employee Directory',
-       `Deleted employee ${target.name} (${target.role})`, target.name, null]
-  ).catch((e) => console.error('[Audit] delete-employee log failed:', e.message));
 
   // No rebuild needed: this employee's summary rows were deleted above, and removing one
   // person cannot change anyone else's marks.

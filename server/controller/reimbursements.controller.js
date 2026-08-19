@@ -153,11 +153,22 @@ export const createReimbursement = async (req, res) => {
       return res.status(400).json({ error: 'Attach the receipt file itself — a file path is not accepted.' });
   }
 
-  await pool.query(`INSERT INTO reimbursements (id, user_id, date, expense_date, category, amount, currency, status, description, cost_centre, is_taxable, proof_file_name, proof_file_size, pay_period) VALUES ($1, $2, $3, $4, $5, $6, $7, 'Submitted', $8, $9, false, $10, $11, $12)`,
-      [id, user.id, submissionDate, expenseDate, category, amount, currency, description || null, costCentre || null, finalProofFileName, proofFileSize || null, expenseDate.substring(0, 7)]);
-
-  await pool.query(`INSERT INTO reimbursement_timeline (reimbursement_id, status, timestamp, actor, completed) VALUES ($1, $2, $3, $4, $5)`,
-      [id, 'Submitted', new Date().toISOString(), user.name, true]);
+  // The claim and its first timeline entry must be written together — otherwise a failure between
+  // them would leave a claim with no history (or throw a raw 500). One transaction, all-or-nothing.
+  const client = await pool.connect();
+  try {
+      await client.query('BEGIN');
+      await client.query(`INSERT INTO reimbursements (id, user_id, date, expense_date, category, amount, currency, status, description, cost_centre, is_taxable, proof_file_name, proof_file_size, pay_period) VALUES ($1, $2, $3, $4, $5, $6, $7, 'Submitted', $8, $9, false, $10, $11, $12)`,
+          [id, user.id, submissionDate, expenseDate, category, amount, currency, description || null, costCentre || null, finalProofFileName, proofFileSize || null, expenseDate.substring(0, 7)]);
+      await client.query(`INSERT INTO reimbursement_timeline (reimbursement_id, status, timestamp, actor, completed) VALUES ($1, $2, $3, $4, $5)`,
+          [id, 'Submitted', new Date().toISOString(), user.name, true]);
+      await client.query('COMMIT');
+  } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+  } finally {
+      client.release();
+  }
 
   res.json({ success: true, id });
 };

@@ -613,24 +613,36 @@ export const updateEmployeeTiming = async (req, res) => {
       }
   };
 
-  if (inTime) {
-      const newInTs = getUtcTs(inTime);
-      if (inPunch && inPunch.punch_type === 'IN') {
-          await pool.query("UPDATE attendance_punches SET timestamp = $1 WHERE id = $2", [newInTs, inPunch.id]);
-      } else {
-          await pool.query("INSERT INTO attendance_punches (id, user_id, punch_type, timestamp, latitude, longitude, address, work_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", [crypto.randomUUID(), employeeId, 'IN', newInTs, 0, 0, 'HR Edited', '-']);
+  // The IN and OUT punch writes must land together — if the OUT write failed after the IN
+  // write, the day would be left half-edited. One transaction, all-or-nothing.
+  const client = await pool.connect();
+  try {
+      await client.query('BEGIN');
+      if (inTime) {
+          const newInTs = getUtcTs(inTime);
+          if (inPunch && inPunch.punch_type === 'IN') {
+              await client.query("UPDATE attendance_punches SET timestamp = $1 WHERE id = $2", [newInTs, inPunch.id]);
+          } else {
+              await client.query("INSERT INTO attendance_punches (id, user_id, punch_type, timestamp, latitude, longitude, address, work_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", [crypto.randomUUID(), employeeId, 'IN', newInTs, 0, 0, 'HR Edited', '-']);
+          }
       }
-  }
-  
-  if (outTime) {
-      const newOutTs = getUtcTs(outTime);
-      if (outPunch) {
-          await pool.query("UPDATE attendance_punches SET timestamp = $1 WHERE id = $2", [newOutTs, outPunch.id]);
-      } else if (inPunch && inPunch.punch_type === 'OUT') {
-          await pool.query("UPDATE attendance_punches SET timestamp = $1 WHERE id = $2", [newOutTs, inPunch.id]);
-      } else {
-          await pool.query("INSERT INTO attendance_punches (id, user_id, punch_type, timestamp, latitude, longitude, address, work_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", [crypto.randomUUID(), employeeId, 'OUT', newOutTs, 0, 0, 'HR Edited', '-']);
+
+      if (outTime) {
+          const newOutTs = getUtcTs(outTime);
+          if (outPunch) {
+              await client.query("UPDATE attendance_punches SET timestamp = $1 WHERE id = $2", [newOutTs, outPunch.id]);
+          } else if (inPunch && inPunch.punch_type === 'OUT') {
+              await client.query("UPDATE attendance_punches SET timestamp = $1 WHERE id = $2", [newOutTs, inPunch.id]);
+          } else {
+              await client.query("INSERT INTO attendance_punches (id, user_id, punch_type, timestamp, latitude, longitude, address, work_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", [crypto.randomUUID(), employeeId, 'OUT', newOutTs, 0, 0, 'HR Edited', '-']);
+          }
       }
+      await client.query('COMMIT');
+  } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+  } finally {
+      client.release();
   }
 
   // Audit trail: a direct timing edit otherwise leaves no record of who made it. Log who edited

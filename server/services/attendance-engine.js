@@ -91,20 +91,22 @@ export function recalculateAttendanceSummaries(targetMonth, employeeId = null) {
 }
 
 async function runRecalculation(targetMonth, employeeId = null) {
-  {
+  const client = await pool.connect();
+  try {
+      await client.query('BEGIN');
       const users = employeeId
         ? [{ employee_id: employeeId }]
-        : (await pool.query("SELECT id as employee_id FROM users WHERE role != 'super_admin'")).rows;
+        : (await client.query("SELECT id as employee_id FROM users WHERE role != 'super_admin'")).rows;
 
       if (employeeId) {
-          await pool.query('DELETE FROM attendance_summaries WHERE month = $1 AND employee_id = $2', [targetMonth, employeeId]);
+          await client.query('DELETE FROM attendance_summaries WHERE month = $1 AND employee_id = $2', [targetMonth, employeeId]);
       } else {
-          await pool.query('DELETE FROM attendance_summaries WHERE month = $1', [targetMonth]);
+          await client.query('DELETE FROM attendance_summaries WHERE month = $1', [targetMonth]);
       }
 
   const policy = await getAttendancePolicy();
 
-  const holidaysRes = await pool.query('SELECT date FROM holidays');
+  const holidaysRes = await client.query('SELECT date FROM holidays');
   const holidays = holidaysRes.rows.map(h => h.date);
 
   // Batch-fetch every employee's records / punches / leaves for the month in ONE query each,
@@ -117,11 +119,11 @@ async function runRecalculation(targetMonth, employeeId = null) {
   const punchesByEmp = new Map();
   const leavesByEmp = new Map();
   if (empIds.length) {
-      const recRows = (await pool.query("SELECT employee_id, date, in_time, out_time, awol FROM attendance_records WHERE employee_id = ANY($1) AND date LIKE $2", [empIds, targetMonth + '%'])).rows;
+      const recRows = (await client.query("SELECT employee_id, date, in_time, out_time, awol FROM attendance_records WHERE employee_id = ANY($1) AND date LIKE $2", [empIds, targetMonth + '%'])).rows;
       for (const r of recRows) { if (!recordsByEmp.has(r.employee_id)) recordsByEmp.set(r.employee_id, []); recordsByEmp.get(r.employee_id).push(r); }
-      const punchRows = (await pool.query("SELECT user_id, timestamp, punch_type, work_mode FROM attendance_punches WHERE user_id = ANY($1) AND timestamp LIKE $2", [empIds, targetMonth + '%'])).rows;
+      const punchRows = (await client.query("SELECT user_id, timestamp, punch_type, work_mode FROM attendance_punches WHERE user_id = ANY($1) AND timestamp LIKE $2", [empIds, targetMonth + '%'])).rows;
       for (const p of punchRows) { if (!punchesByEmp.has(p.user_id)) punchesByEmp.set(p.user_id, []); punchesByEmp.get(p.user_id).push(p); }
-      const leaveRows = (await pool.query("SELECT employee_id, from_date, to_date, status FROM leave_requests WHERE employee_id = ANY($1) AND status = 'Approved'", [empIds])).rows;
+      const leaveRows = (await client.query("SELECT employee_id, from_date, to_date, status FROM leave_requests WHERE employee_id = ANY($1) AND status = 'Approved'", [empIds])).rows;
       for (const l of leaveRows) { if (!leavesByEmp.has(l.employee_id)) leavesByEmp.set(l.employee_id, []); leavesByEmp.get(l.employee_id).push(l); }
   }
 
@@ -257,7 +259,7 @@ async function runRecalculation(targetMonth, employeeId = null) {
             .map((_, i) => `(${Array.from({ length: cols }, (_, c) => `$${i * cols + c + 1}`).join(', ')})`)
             .join(', ');
 
-          const saved = (await pool.query(
+          const saved = (await client.query(
             `INSERT INTO attendance_daily_logs
                (id, employee_id, date, in_time, in_source, out_time, out_source, penalty_type, penalty_status)
              VALUES ${valuesSql}
@@ -295,13 +297,20 @@ async function runRecalculation(targetMonth, employeeId = null) {
       const valuesSql = summaryRows
         .map((_, i) => `(${Array.from({ length: cols }, (_, c) => `$${i * cols + c + 1}`).join(', ')})`)
         .join(', ');
-      await pool.query(
+      await client.query(
         `INSERT INTO attendance_summaries
            (id, employee_id, month, marks_used, late_marks, early_marks, half_day_deductions, awol_days, deduction_amount)
          VALUES ${valuesSql}`,
         summaryRows.flat()
       );
   }
+
+      await client.query('COMMIT');
+  } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+  } finally {
+      client.release();
   }
 }
 
