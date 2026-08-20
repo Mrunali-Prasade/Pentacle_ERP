@@ -179,10 +179,9 @@ export default function SuperAdminDashboard({
 
       {activeTab === 'policy' && (
       <>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left: the rules the system actually applies (read-only) */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+      <div className="max-w-2xl">
+        {/* The rules the system actually applies (read-only) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
             <h3 className="text-lg font-bold text-[#021934]">System Rules</h3>
             <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
@@ -204,42 +203,6 @@ export default function SuperAdminDashboard({
                 <span className="text-sm text-slate-500">{v}</span>
               </div>
             ))}
-          </div>
-        </div>
-
-        {/* Right: reimbursement spend caps (read-only) */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-              <h3 className="text-lg font-bold text-[#021934]">Reimbursement Guardrails</h3>
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-                <span className="material-symbols-outlined text-[13px]">lock</span> Read-only
-              </span>
-            </div>
-            <div className="space-y-4">
-              {guardrails.length === 0 && (
-                <p className="text-sm text-slate-400 text-center py-8">No spend caps are configured.</p>
-              )}
-              {guardrails.map((g) => (
-                <div key={g.category} className="border border-slate-100 p-4 rounded-xl flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-bold text-slate-800 text-sm">{g.category}</div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Cap: <span className="font-mono font-bold text-slate-600">&#8377;{g.monthlyCap.toLocaleString()}</span> &bull;{' '}
-                      Proof: <span className="font-semibold text-slate-500">{g.proofRequired ? 'Required' : 'None'}</span>
-                    </p>
-                  </div>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                    g.status === 'ACTIVE' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'
-                  }`}>
-                    {g.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="text-xs text-slate-400 italic text-center mt-6">
-            Spend caps are applied when employees submit claims. They are read-only here.
           </div>
         </div>
       </div>
