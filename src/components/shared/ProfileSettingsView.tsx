@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../../types';
+import Avatar from '../common/Avatar';
 
 interface ProfileSettingsViewProps {
   user: UserProfile;
@@ -49,7 +50,7 @@ export default function ProfileSettingsView({ user, onUpdateProfile, triggerToas
         <div className="p-6 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-700">
-              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+              <Avatar name={user.name} src={user.avatarUrl} className="w-full h-full text-xl" />
             </div>
             <div>
               <h3 className="text-xl font-bold text-[#021934]">{user.name}</h3>

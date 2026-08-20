@@ -19,6 +19,7 @@ import AdminHRDashboard from './components/dashboards/AdminHRDashboard';
 import SuperAdminDashboard from './components/dashboards/SuperAdminDashboard';
 import ProfileSettingsView from './components/shared/ProfileSettingsView';
 import ExtraAccessView from './components/dashboards/employee/ExtraAccessView';
+import Avatar from './components/common/Avatar';
 import ForcePasswordChangeView from './components/shared/ForcePasswordChangeView';
 
 // Every extra-access permission that isn't already covered by a role's normal dashboard.
@@ -381,7 +382,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50/60 pb-20 flex flex-col justify-between overflow-x-clip">
       
-      <header className="bg-[#021934] text-white border-b border-white/5 sticky top-0 z-40 shadow-md">
+      <header className="bg-[#021934] text-white border-b border-white/5 sticky top-0 z-40 shadow-md pt-[env(safe-area-inset-top)]">
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-18 flex items-center justify-between">
           <div className="flex items-center shrink-0 w-[140px] md:w-[180px] h-[50px] overflow-hidden relative">
             <img src="/logo-light.png" alt="Pentacle Logo" className="absolute top-1/2 left-0 -translate-y-1/2 h-[75px] w-auto max-w-none cursor-pointer" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))' }} />
@@ -446,7 +447,7 @@ export default function App() {
               className="w-10 h-10 rounded-full border border-white/10 overflow-hidden shrink-0 bg-slate-700 hover:ring-2 hover:ring-orange-500 transition-all cursor-pointer"
               title="My Profile"
             >
-              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <Avatar name={user.name} src={user.avatarUrl} className="w-full h-full text-sm" />
             </button>
 
             <button 
