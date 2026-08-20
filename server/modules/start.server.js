@@ -12,6 +12,13 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Behind Vercel's (or any single) reverse proxy the real client IP arrives in the
+// X-Forwarded-For header; without this, Express would see every request as coming from the
+// proxy's own IP and the rate limiter below would lump all visitors into one bucket. `1` trusts
+// exactly one proxy hop (the correct, non-permissive setting). This does not change cookie
+// behaviour: the auth cookie's Secure flag is decided by reading x-forwarded-proto directly.
+app.set('trust proxy', 1);
+
 // --- Security Headers (enterprise standard) ---
 // The Content-Security-Policy ships in REPORT-ONLY mode: it reports violations to the browser
 // console but blocks nothing, so it can never break the app. Once the app is deployed and every
@@ -87,6 +94,30 @@ app.use(cookieParser());
 // Uploaded files are served by an authenticated, per-file-authorized route inside the API
 // router (GET /api/uploads/*, see routes/api.routes.js -> serveUpload). The old public
 // express.static mount was removed: it exposed receipts and identity documents to anyone.
+
+// --- Global API rate limiting (defense-in-depth against floods / runaway scripts) ---
+// A generous per-IP cap: normal use — even a whole office behind one shared public IP, or a
+// heavy dashboard firing dozens of calls on load — stays far below it, while a request flood is
+// stopped. Tune without code changes via RATE_LIMIT_MAX / RATE_LIMIT_WINDOW_MS. This is a
+// best-effort, per-instance limiter (each serverless instance counts independently); the durable,
+// account-level brute-force protection on /login (keyed on email, backed by the DB) is unchanged
+// and remains the primary control there. Only /api is limited — static frontend assets are not.
+// Loaded defensively (like helmet): if the package is absent the app still boots, just unthrottled.
+try {
+  const rlModule = await import('express-rate-limit');
+  const rateLimit = rlModule.default || rlModule;
+  const apiLimiter = rateLimit({
+    windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000, // 1 minute
+    max: Number(process.env.RATE_LIMIT_MAX) || 1000,             // per IP, per window
+    standardHeaders: true,   // expose limit info in RateLimit-* headers
+    legacyHeaders: false,
+    message: { error: 'Too many requests. Please slow down and try again shortly.' },
+  });
+  app.use('/api', apiLimiter);
+  console.log(`[Security] API rate limiting active (${Number(process.env.RATE_LIMIT_MAX) || 1000} req / ${(Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000) / 1000}s per IP)`);
+} catch (e) {
+  console.warn('[Security] express-rate-limit not found — API rate limiting skipped');
+}
 
 // Mount all routes onto /api
 app.use('/api', apiRouter);
