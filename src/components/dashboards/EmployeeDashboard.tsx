@@ -392,7 +392,7 @@ export default function EmployeeDashboard({ user, payslips, claims, onChangeView
             <form className="p-6 space-y-4" onSubmit={handleSubmitRegularisation}>
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Date</label>
-                <input type="date" value={regDate} max={new Date().toISOString().split('T')[0]} onChange={e => setRegDate(e.target.value)} required className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-[#021934]/20" />
+                <input type="date" value={regDate} min={user.joinDate ? user.joinDate.slice(0, 10) : undefined} max={new Date().toISOString().split('T')[0]} onChange={e => setRegDate(e.target.value)} required className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-[#021934]/20" />
               </div>
               <div className="flex gap-4">
                 <div className="flex-1">

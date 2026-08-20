@@ -781,6 +781,20 @@ export const submitRegularisation = async (req, res) => {
   const user = req.user;
   const { date, reason, inTime, outTime } = req.body;
   if (!date || !reason || !inTime || !outTime) return res.status(400).json({ error: 'Missing required fields' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return res.status(400).json({ error: 'Invalid date. Expected YYYY-MM-DD.' });
+  if (!/^\d{2}:\d{2}$/.test(String(inTime)) || !/^\d{2}:\d{2}$/.test(String(outTime))) {
+      return res.status(400).json({ error: 'Check-in and check-out must be valid times (HH:MM).' });
+  }
+  // A correction is only for a real, past working day inside your own employment window: you
+  // can't regularise a day in the future, or a date before you joined the company.
+  const istToday = new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+  if (date > istToday) return res.status(400).json({ error: 'You cannot request a correction for a future date.' });
+  const regUser = (await pool.query('SELECT join_date FROM users WHERE id = $1', [user.id])).rows[0];
+  const joinDay = regUser?.join_date ? String(regUser.join_date).slice(0, 10) : null;
+  if (joinDay && date < joinDay) {
+      return res.status(400).json({ error: `You cannot request a correction for a date before you joined (${joinDay}).` });
+  }
+
   const id = 'reg-' + Math.floor(10000 + Math.random() * 90000);
   const timestamp = new Date().toISOString();
   await pool.query(
