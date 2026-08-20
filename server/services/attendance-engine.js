@@ -95,8 +95,8 @@ async function runRecalculation(targetMonth, employeeId = null) {
   try {
       await client.query('BEGIN');
       const users = employeeId
-        ? [{ employee_id: employeeId }]
-        : (await client.query("SELECT id as employee_id FROM users WHERE role != 'super_admin'")).rows;
+        ? (await client.query("SELECT id as employee_id, join_date, exit_date FROM users WHERE id = $1", [employeeId])).rows
+        : (await client.query("SELECT id as employee_id, join_date, exit_date FROM users WHERE role != 'super_admin'")).rows;
 
       if (employeeId) {
           await client.query('DELETE FROM attendance_summaries WHERE month = $1 AND employee_id = $2', [targetMonth, employeeId]);
@@ -247,6 +247,18 @@ async function runRecalculation(targetMonth, employeeId = null) {
                 logId, u.employee_id, dateStr, fmt(finalIn), inSource,
                 fmt(finalOut), outSource, penaltyType, autoStatus
               ]);
+          } else if (dateStr < todayStr && !log.hasRecord
+                     && (!u.join_date || dateStr >= u.join_date)
+                     && (!u.exit_date || dateStr <= u.exit_date)) {
+              // A PAST working day (already skipped weekends/holidays/approved-leave above) with no
+              // punch and no HR record, falling inside the person's employment dates => an
+              // unexplained absence. Recorded as 'Pending' so HR can confirm it (Deduct = a full
+              // day's pay) or waive it. If it was really a forgotten punch, the employee/HR
+              // regularises the day and the next recalculation clears this automatically.
+              const logId = `${u.employee_id}_${dateStr}`;
+              dailyLogRows.push([
+                logId, u.employee_id, dateStr, null, null, null, null, 'Absent', 'Pending'
+              ]);
           }
       }
 
@@ -274,14 +286,17 @@ async function runRecalculation(targetMonth, employeeId = null) {
                    THEN attendance_daily_logs.penalty_status
                  ELSE EXCLUDED.penalty_status
                END
-             RETURNING penalty_status`,
+             RETURNING penalty_status, penalty_type`,
             dailyLogRows.flat()
           )).rows;
 
-          // An approved penalty costs half a day, per penalised day (not per mark).
-          const deductedDays = saved.filter(r => r.penalty_status === 'Deduct').length;
-          approvedDeductionsAmount += deductedDays * 0.5;
-          halfDays += deductedDays;
+          // A confirmed late/early penalty costs half a day; a confirmed full-day absence costs a
+          // whole day (and counts toward awol_days, which is what actually reduces payroll pay).
+          const deductedMarks = saved.filter(r => r.penalty_status === 'Deduct' && r.penalty_type !== 'Absent').length;
+          const deductedAbsences = saved.filter(r => r.penalty_status === 'Deduct' && r.penalty_type === 'Absent').length;
+          approvedDeductionsAmount += deductedMarks * 0.5 + deductedAbsences * 1.0;
+          halfDays += deductedMarks;
+          awolDays += deductedAbsences;
       }
 
 
