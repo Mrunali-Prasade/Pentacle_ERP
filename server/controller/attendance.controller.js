@@ -948,21 +948,29 @@ async function sendReminderEmail(to, name, istDate) {
   const from = process.env.NOTIFY_FROM_EMAIL;
   if (!apiKey || !from) return { sent: false, reason: 'email not configured' };
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject: 'Reminder: you have not punched out today',
-      html:
-        `<p>Hi ${escapeHtml(name)},</p>` +
-        `<p>Our records show you punched in on ${escapeHtml(istDate)} but have not punched out yet.</p>` +
-        `<p>Please punch out before the end of the day. If you forget, the day stays marked ` +
-        `<strong>Incomplete</strong> and you will need HR to regularise it.</p>` +
-        `<p>— Pentacle Payroll</p>`,
-    }),
-  });
+  let res;
+  try {
+    // Timeout so a hung Resend call never blocks the reminder job (and holds a pool slot open).
+    res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: 'Reminder: you have not punched out today',
+        html:
+          `<p>Hi ${escapeHtml(name)},</p>` +
+          `<p>Our records show you punched in on ${escapeHtml(istDate)} but have not punched out yet.</p>` +
+          `<p>Please punch out before the end of the day. If you forget, the day stays marked ` +
+          `<strong>Incomplete</strong> and you will need HR to regularise it.</p>` +
+          `<p>— Pentacle Payroll</p>`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    // Never let a mail failure throw out of the reminder loop — skip this one and move on.
+    return { sent: false, reason: `resend request failed: ${e.message}` };
+  }
 
   if (!res.ok) return { sent: false, reason: `resend ${res.status}: ${await res.text()}` };
   return { sent: true };

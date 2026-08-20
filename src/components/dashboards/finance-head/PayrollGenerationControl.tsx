@@ -23,9 +23,7 @@ export default function PayrollGenerationControl({ onRunPayroll, triggerToast }:
   useEffect(() => {
     if (showGenerateModal) {
       setCheckingBlockers(true);
-      fetch(`/api/payroll/check/${payrollMonth}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      })
+      fetch(`/api/payroll/check/${payrollMonth}`)
         .then(r => r.json())
         .then(data => {
           setBlockerData(data.blockers);
@@ -45,8 +43,7 @@ export default function PayrollGenerationControl({ onRunPayroll, triggerToast }:
     setProgressVal(50);
     try {
       const res = await fetch(`/api/payroll/lock/${payrollMonth}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        method: 'POST'
       });
       if (res.ok) {
         setProgressVal(100);

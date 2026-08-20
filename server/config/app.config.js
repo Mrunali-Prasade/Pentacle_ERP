@@ -1,9 +1,16 @@
 import pkg from 'pg';
-const { Pool } = pkg;
+const { Pool, types } = pkg;
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
 dotenv.config();
+
+// Return Postgres NUMERIC/DECIMAL (type OID 1700) as a JS number, exactly like the driver
+// already returns REAL/float. Money columns are being moved REAL -> NUMERIC for exact storage
+// and exact SQL-side arithmetic; without this parser `pg` would hand NUMERIC back as a STRING,
+// which would silently break every `.toLocaleString()`, sum, and comparison in the app. Parsing
+// to a number keeps all existing behaviour identical while the database gains exactness.
+types.setTypeParser(1700, (val) => (val === null ? null : parseFloat(val)));
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 

@@ -347,7 +347,9 @@ export const getStoredFile = async (req, res) => {
     // previewing it (a PDF receipt then never renders in the in-app viewer). Proxying also keeps
     // the request same-origin for CSP and hides the OneDrive URL from the client. Receipts are
     // small (<= a few MB) and viewed rarely, so the extra server hop is negligible.
-    const upstream = await fetch(url);
+    // Cap the upstream fetch so a slow/hung OneDrive response can't hold this request (and one of
+    // the few DB pool connections behind it) open until the platform's function timeout.
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!upstream.ok) return res.status(502).json({ error: 'Could not retrieve the file.' });
     const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
     const buffer = Buffer.from(await upstream.arrayBuffer());

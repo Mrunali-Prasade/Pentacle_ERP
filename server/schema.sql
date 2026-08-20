@@ -53,17 +53,19 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_key ON login_attempts (key, attemp
 CREATE TABLE IF NOT EXISTS salary_structures (
     id TEXT PRIMARY KEY,
     employee_id TEXT NOT NULL,
-    monthly_salary REAL NOT NULL,
+    monthly_salary NUMERIC(14,2) NOT NULL,
     basic_percent REAL DEFAULT 50.0,
     hra_percent REAL DEFAULT 10.0,
     conveyance_percent REAL DEFAULT 5.0,
     special_percent REAL DEFAULT 15.0,
     other_percent REAL DEFAULT 20.0,
-    tds REAL DEFAULT 0,
-    eps_pension REAL DEFAULT NULL,
+    tds NUMERIC(14,2) DEFAULT 0,
+    eps_pension NUMERIC(14,2) DEFAULT NULL,
     effective_from TEXT NOT NULL,
     FOREIGN KEY(employee_id) REFERENCES users(id)
 );
+-- One active salary row per employee (backstop for the app-level advisory lock).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_emp_unique ON salary_structures (employee_id);
 
 CREATE TABLE IF NOT EXISTS payslips (
     id TEXT PRIMARY KEY,
@@ -74,31 +76,33 @@ CREATE TABLE IF NOT EXISTS payslips (
     calendar_days INTEGER NOT NULL,
     paid_days INTEGER NOT NULL,
     -- Earnings
-    basic_salary REAL NOT NULL,
-    hra REAL NOT NULL,
-    conveyance_allowance REAL NOT NULL,
-    special_allowance REAL NOT NULL,
-    other_allowance REAL NOT NULL,
-    reimbursements REAL DEFAULT 0,
-    overtime_amount REAL DEFAULT 0,
-    bonus REAL DEFAULT 0,
-    gross_amount REAL NOT NULL,
+    basic_salary NUMERIC(14,2) NOT NULL,
+    hra NUMERIC(14,2) NOT NULL,
+    conveyance_allowance NUMERIC(14,2) NOT NULL,
+    special_allowance NUMERIC(14,2) NOT NULL,
+    other_allowance NUMERIC(14,2) NOT NULL,
+    reimbursements NUMERIC(14,2) DEFAULT 0,
+    overtime_amount NUMERIC(14,2) DEFAULT 0,
+    bonus NUMERIC(14,2) DEFAULT 0,
+    gross_amount NUMERIC(14,2) NOT NULL,
     -- Deductions
-    provident_fund REAL NOT NULL,
-    employer_pf REAL NOT NULL,
-    pension REAL NOT NULL,
-    professional_tax REAL NOT NULL,
-    income_tax REAL NOT NULL,
-    lop_deduction REAL DEFAULT 0,
-    loan_instalment REAL DEFAULT 0,
-    other_deductions REAL DEFAULT 0,
-    gross_deduction REAL NOT NULL,
+    provident_fund NUMERIC(14,2) NOT NULL,
+    employer_pf NUMERIC(14,2) NOT NULL,
+    pension NUMERIC(14,2) NOT NULL,
+    professional_tax NUMERIC(14,2) NOT NULL,
+    income_tax NUMERIC(14,2) NOT NULL,
+    lop_deduction NUMERIC(14,2) DEFAULT 0,
+    loan_instalment NUMERIC(14,2) DEFAULT 0,
+    other_deductions NUMERIC(14,2) DEFAULT 0,
+    gross_deduction NUMERIC(14,2) NOT NULL,
     -- Totals
-    net_amount REAL NOT NULL,
-    amount_to_bank REAL NOT NULL,
+    net_amount NUMERIC(14,2) NOT NULL,
+    amount_to_bank NUMERIC(14,2) NOT NULL,
     pdf_url TEXT,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+-- One payslip per employee per pay period (backstop for the runPayroll advisory lock).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payslips_user_period_unique ON payslips (user_id, pay_period);
 
 CREATE TABLE IF NOT EXISTS reimbursements (
     id TEXT PRIMARY KEY,
@@ -106,7 +110,7 @@ CREATE TABLE IF NOT EXISTS reimbursements (
     date TEXT NOT NULL,
     expense_date TEXT NOT NULL,
     category TEXT NOT NULL,
-    amount REAL NOT NULL,
+    amount NUMERIC(14,2) NOT NULL,
     currency TEXT NOT NULL,
     status TEXT NOT NULL,
     description TEXT,
@@ -172,7 +176,7 @@ CREATE TABLE IF NOT EXISTS attendance_summaries (
     early_marks INTEGER DEFAULT 0,
     half_day_deductions INTEGER DEFAULT 0,
     awol_days INTEGER DEFAULT 0,
-    deduction_amount REAL DEFAULT 0,
+    deduction_amount NUMERIC(14,2) DEFAULT 0,
     FOREIGN KEY(employee_id) REFERENCES users(id)
 );
 
@@ -182,7 +186,7 @@ CREATE TABLE IF NOT EXISTS overtime_summaries (
     month TEXT NOT NULL, -- MM-YYYY
     overtime_hours REAL DEFAULT 0,
     rate REAL DEFAULT 50.0,
-    overtime_amount REAL DEFAULT 0,
+    overtime_amount NUMERIC(14,2) DEFAULT 0,
     FOREIGN KEY(employee_id) REFERENCES users(id)
 );
 
@@ -217,9 +221,9 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 CREATE TABLE IF NOT EXISTS loans (
     id TEXT PRIMARY KEY,
     employee_id TEXT NOT NULL,
-    principal REAL NOT NULL,
-    monthly_instalment REAL NOT NULL,
-    remaining_balance REAL NOT NULL,
+    principal NUMERIC(14,2) NOT NULL,
+    monthly_instalment NUMERIC(14,2) NOT NULL,
+    remaining_balance NUMERIC(14,2) NOT NULL,
     start_month TEXT NOT NULL,
     FOREIGN KEY(employee_id) REFERENCES users(id)
 );
@@ -231,7 +235,7 @@ CREATE TABLE IF NOT EXISTS loan_payments (
     id TEXT PRIMARY KEY,
     loan_id TEXT NOT NULL,
     pay_period TEXT NOT NULL,
-    amount REAL NOT NULL,
+    amount NUMERIC(14,2) NOT NULL,
     FOREIGN KEY(loan_id) REFERENCES loans(id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_payments_unique ON loan_payments (loan_id, pay_period);
@@ -354,7 +358,7 @@ CREATE TABLE IF NOT EXISTS global_policy (
     leave_accrual TEXT NOT NULL,
     sla_escalation TEXT NOT NULL,
     reimbursement_cutoff_days INTEGER NOT NULL DEFAULT 30,
-    cfo_approval_threshold REAL NOT NULL DEFAULT 1000,
+    cfo_approval_threshold NUMERIC(14,2) NOT NULL DEFAULT 1000,
     arrival_time_end TEXT NOT NULL DEFAULT '09:30',
     leaving_time_start TEXT NOT NULL DEFAULT '18:00',
     leave_cycle_start_month TEXT NOT NULL DEFAULT 'January',
@@ -367,7 +371,7 @@ CREATE TABLE IF NOT EXISTS global_policy (
 CREATE TABLE IF NOT EXISTS guardrails (
     id SERIAL PRIMARY KEY,
     category TEXT UNIQUE NOT NULL,
-    monthly_cap REAL NOT NULL,
+    monthly_cap NUMERIC(14,2) NOT NULL,
     proof_required BOOLEAN NOT NULL DEFAULT true,
     status TEXT NOT NULL
 );

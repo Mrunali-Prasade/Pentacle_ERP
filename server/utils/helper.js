@@ -18,7 +18,10 @@ const ENC_KEY = process.env.ENCRYPTION_KEY && /^[0-9a-fA-F]{64}$/.test(process.e
   : null;
 
 if (config.env === 'production' && !ENC_KEY) {
-  console.warn('[Crypto] ENCRYPTION_KEY not set (or not 64 hex chars) — sensitive fields will be stored in PLAINTEXT.');
+  // Fail closed: refuse to boot in production without a valid key rather than silently writing
+  // Aadhaar / PAN / bank numbers in plaintext. (Development stays a no-op — see encryptField.)
+  console.error('FATAL: ENCRYPTION_KEY is missing or not 64 hex characters. Refusing to start so sensitive fields are never persisted unencrypted.');
+  process.exit(1);
 }
 
 export const encryptField = (plaintext) => {

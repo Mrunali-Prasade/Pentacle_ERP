@@ -1,6 +1,7 @@
 import express from 'express';
 import * as controllersRaw from '../controller/controllers.js';
 import { requireAuth, requireRole, requirePermission, requireRoleOrPermission } from '../utils/helper.js';
+import { pool } from '../config/app.config.js';
 
 // Safety net: wrap every controller so a thrown or rejected async handler becomes a clean 500
 // (handled by the error middleware in start.server.js) instead of hanging the request forever.
@@ -13,6 +14,22 @@ for (const [name, value] of Object.entries(controllersRaw)) {
 }
 
 const router = express.Router();
+
+// ==========================================
+// 0. HEALTH / READINESS (unauthenticated, for uptime monitors & load balancers)
+// ==========================================
+// Liveness: is the process up and serving? No DB touch — never fails on a DB blip.
+router.get('/health', (req, res) => res.json({ status: 'ok' }));
+// Readiness: can the app actually reach its database? A short SELECT 1; returns 503 if not,
+// so a monitor can distinguish "process alive but DB down" from a healthy instance.
+router.get('/ready', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ready' });
+  } catch (e) {
+    res.status(503).json({ status: 'unavailable' });
+  }
+});
 
 // ==========================================
 // 1. AUTH ROUTES

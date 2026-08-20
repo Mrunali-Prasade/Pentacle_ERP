@@ -44,12 +44,43 @@ export const updateProfile = async (req, res) => {
   const parsed = UpdateProfileSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message });
   const { uanNumber, panNumber, bankName, bankAccount, location, state } = parsed.data;
+
+  // Detect which payout-relevant fields actually change, by comparing against the current
+  // (decrypted) values. This drives a fraud-trail audit entry below — a bank/PAN/UAN change is
+  // the classic payout-redirection vector, so it must leave a record of who changed it and when.
+  const before = (await pool.query(
+    'SELECT uan_number, pan_number, bank_name, bank_account FROM users WHERE id = $1', [user.id]
+  )).rows[0] || {};
+  const changedFinancial = [];
+  if ((decryptField(before.bank_account) || '') !== (bankAccount || '')) changedFinancial.push('bank account');
+  if ((before.bank_name || '') !== (bankName || '')) changedFinancial.push('bank name');
+  if ((decryptField(before.pan_number) || '') !== (panNumber || '')) changedFinancial.push('PAN');
+  if ((decryptField(before.uan_number) || '') !== (uanNumber || '')) changedFinancial.push('UAN');
+
   // Encrypt the sensitive identity/bank fields at rest (bank_name / location / state are not
   // sensitive and stay plaintext for display and filtering).
   await pool.query(
     `UPDATE users SET uan_number = $1, pan_number = $2, bank_name = $3, bank_account = $4, location = $5, state = $6 WHERE id = $7`,
     [encryptField(uanNumber) || null, encryptField(panNumber) || null, bankName || null, encryptField(bankAccount) || null, location || null, state || null, user.id]
   );
+
+  // Best-effort audit: record THAT financial details changed (and which), never the values
+  // themselves — the actual numbers must not land in the audit table. An audit failure must
+  // never fail the user's profile save, so it is caught and logged only.
+  if (changedFinancial.length) {
+    try {
+      await pool.query(
+        `INSERT INTO audit_logs (id, timestamp, actor, role, module, change_description, before_value, after_value)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        ['AL-' + crypto.randomUUID(), new Date().toISOString().replace('T', ' ').substring(0, 19),
+         user.name, user.role, 'Profile / Bank Details',
+         `Employee updated own payout details: ${changedFinancial.join(', ')}`, null, null]
+      );
+    } catch (e) {
+      console.error('[Audit] profile financial-change log failed:', e.message);
+    }
+  }
+
   res.json({ success: true });
 };
 
@@ -167,6 +198,26 @@ export const updateEmployee = async (req, res) => {
   // admin demoting them, changing their email, or locking them out via status).
   if (targetRank > actorRank && req.user.role !== 'super_admin') {
     return res.status(403).json({ error: 'You cannot edit a user whose role is higher than your own.' });
+  }
+
+  // Peer protection: an admin_hr must not be able to edit (and thereby re-email, re-code, or
+  // lock out via status) ANOTHER admin_hr. The attendance / penalty modules already block this
+  // peer case; the employee editor was the inconsistent gap. Editing your OWN record is still
+  // allowed here (other guards below still stop self-role / self-salary changes); super_admin is
+  // unaffected because it is filtered out above and never has role === 'admin_hr' in practice.
+  if (req.user.role === 'admin_hr' && targetRow.role === 'admin_hr' && id !== req.user.id) {
+    return res.status(403).json({ error: 'You cannot edit another HR administrator’s record.' });
+  }
+
+  // Dates are stored as TEXT and compared as strings (leave ranges, earned-leave accrual). A
+  // non-ISO value like '01/08/2026' would silently corrupt those comparisons. Require each date,
+  // when provided, to START with YYYY-MM-DD (a trailing time, if any, is harmless and still sorts
+  // correctly); empty/omitted is fine and preserved by the COALESCE / nullable columns below.
+  const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
+  for (const [label, val] of [['Date of joining', join_date], ['Date of birth', dob], ['Exit date', exit_date]]) {
+    if (val !== undefined && val !== null && val !== '' && !ISO_DATE_PREFIX.test(String(val))) {
+      return res.status(400).json({ error: `${label} must be a valid date (YYYY-MM-DD).` });
+    }
   }
 
   // Decide the role that will actually be written. A role change is honoured only when

@@ -162,25 +162,25 @@ const INDEXES = [
 
 // Ensure payment_proof_file_name column exists
 pool.query('ALTER TABLE reimbursements ADD COLUMN IF NOT EXISTS payment_proof_file_name TEXT')
-  .catch(() => {});
+  .catch((e) => console.error('[Migrate]', e.message));
 
 // Ensure certificate_url column exists
 pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS certificate_url TEXT')
-  .catch(() => {});
+  .catch((e) => console.error('[Migrate]', e.message));
 
 // getAllLeaveRequests selects and orders by submission_date, so guarantee it exists
 pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS submission_date TEXT')
-  .catch(() => {});
+  .catch((e) => console.error('[Migrate]', e.message));
 
 // Ensure leave_cycle_start_month column exists
 pool.query("ALTER TABLE global_policy ADD COLUMN IF NOT EXISTS leave_cycle_start_month TEXT NOT NULL DEFAULT 'January'")
-  .catch(() => {});
+  .catch((e) => console.error('[Migrate]', e.message));
 
 // Attendance rule settings (shift length + free late/early allowance)
 pool.query('ALTER TABLE global_policy ADD COLUMN IF NOT EXISTS required_shift_hours REAL NOT NULL DEFAULT 9')
-  .catch(() => {});
+  .catch((e) => console.error('[Migrate]', e.message));
 pool.query('ALTER TABLE global_policy ADD COLUMN IF NOT EXISTS free_marks_allowance INTEGER NOT NULL DEFAULT 3')
-  .catch(() => {});
+  .catch((e) => console.error('[Migrate]', e.message));
 
 // Loan-payment ledger (makes payroll re-runs idempotent — see runPayroll). Created here so
 // existing databases get it without a manual migration; also defined in schema.sql for fresh ones.
@@ -191,6 +191,14 @@ pool.query(`CREATE TABLE IF NOT EXISTS loan_payments (
     amount REAL NOT NULL
 )`).then(() => pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_payments_unique ON loan_payments (loan_id, pay_period)'))
   .catch((e) => console.error('[Migrate] loan_payments:', e.message));
+
+// Integrity backstops alongside the app-level advisory locks: one salary row per employee, and
+// one payslip per employee per pay period. IF NOT EXISTS makes them a no-op once present. Errors
+// are logged (not swallowed); on clean data these apply cleanly.
+pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_emp_unique ON salary_structures (employee_id)')
+  .catch((e) => console.error('[Migrate] salary uniqueness:', e.message));
+pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payslips_user_period_unique ON payslips (user_id, pay_period)')
+  .catch((e) => console.error('[Migrate] payslip uniqueness:', e.message));
 
 // The attendance rules read global_policy WHERE id = 1. Without that row every setting
 // silently falls back to a hardcoded default and the admin policy screen has nothing to edit.
