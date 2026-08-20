@@ -77,7 +77,8 @@ export default function EmployeeDirectory({
           )}
         </div>
       </div>
-      <table className="w-full text-left border-collapse">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] text-left border-collapse">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
             <th className="p-4 font-semibold text-left">Emp ID</th>
@@ -151,6 +152,7 @@ export default function EmployeeDirectory({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

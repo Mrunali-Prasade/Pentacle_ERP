@@ -321,7 +321,7 @@ export function DetailedAttendanceView({ penaltiesPanel, penaltiesCount }: Detai
 
       {/* Data Grid */}
       <div className="flex-1 overflow-auto bg-white">
-        <table className="w-full text-left whitespace-nowrap min-w-max">
+        <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap min-w-max">
           <thead className="sticky top-0 bg-slate-50/80 backdrop-blur-sm z-10 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
               <th className="px-6 py-4">NAME</th>
@@ -427,7 +427,7 @@ export function DetailedAttendanceView({ penaltiesPanel, penaltiesCount }: Detai
               ))
             )}
           </tbody>
-        </table>
+        </table></div>
       </div>
       </>
       )}
@@ -510,7 +510,7 @@ export function DetailedAttendanceView({ penaltiesPanel, penaltiesCount }: Detai
             </div>
             
             <div className="flex-1 overflow-auto p-0">
-              <table className="w-full text-left whitespace-nowrap min-w-max">
+              <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap min-w-max">
                 <thead className="sticky top-0 bg-slate-50/90 backdrop-blur-sm shadow-[0_1px_2px_rgba(0,0,0,0.05)] z-10">
                   <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                     <th className="px-6 py-3">Date</th>
@@ -606,7 +606,7 @@ export function DetailedAttendanceView({ penaltiesPanel, penaltiesCount }: Detai
                     ))
                   )}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           </div>
         </div>

@@ -94,7 +94,7 @@ export default function DailyAttendanceList({ onClose }: { onClose: () => void }
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-              <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500">
                     <th className="px-6 py-4 font-bold">Employee</th>
@@ -129,7 +129,7 @@ export default function DailyAttendanceList({ onClose }: { onClose: () => void }
                     </tr>
                   )}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </div>
