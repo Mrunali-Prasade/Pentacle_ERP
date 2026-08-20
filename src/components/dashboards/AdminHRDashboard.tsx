@@ -125,7 +125,7 @@ export default function AdminHRDashboard({
       </div>
 
       {/* Navigation Tabs */}
-      <div className="border-b border-slate-200 flex gap-6">
+      <div className="border-b border-slate-200 flex gap-6 overflow-x-auto [&>button]:shrink-0 [&>button]:whitespace-nowrap">
 
         <button
           onClick={() => setActiveTab('overview')}

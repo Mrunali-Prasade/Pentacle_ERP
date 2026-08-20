@@ -379,7 +379,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/60 pb-20 flex flex-col justify-between">
+    <div className="min-h-screen bg-slate-50/60 pb-20 flex flex-col justify-between overflow-x-clip">
       
       <header className="bg-[#021934] text-white border-b border-white/5 sticky top-0 z-40 shadow-md">
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-18 flex items-center justify-between">
