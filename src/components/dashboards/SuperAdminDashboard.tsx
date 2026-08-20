@@ -179,9 +179,9 @@ export default function SuperAdminDashboard({
 
       {activeTab === 'policy' && (
       <>
-      <div className="max-w-2xl">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
         {/* The rules the system actually applies (read-only) */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+        <div className="xl:col-span-5 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
             <h3 className="text-lg font-bold text-[#021934]">System Rules</h3>
             <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
@@ -205,10 +205,9 @@ export default function SuperAdminDashboard({
             ))}
           </div>
         </div>
-      </div>
 
-      {/* System Audit Trail View bottom */}
-      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+        {/* Configuration & policy audit trail */}
+        <section className="xl:col-span-7 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
         <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50">
           <div>
             <h3 className="text-lg font-bold text-[#021934]">Cryptographic System Audit Trail</h3>
@@ -280,6 +279,7 @@ export default function SuperAdminDashboard({
           <Pagination page={paged.page} totalPages={paged.totalPages} total={paged.total} pageSize={paged.pageSize} onChange={paged.setPage} />
         </div>
       </section>
+      </div>
       </>
       )}
     </div>
