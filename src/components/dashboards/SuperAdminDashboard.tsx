@@ -121,7 +121,7 @@ export default function SuperAdminDashboard({
       {/* Header */}
       <div>
         <h2 className="text-3xl font-bold text-[#021934] tracking-tight">System Policy Engine</h2>
-        <p className="text-sm text-slate-500 mt-1">Configure global automated guardrails, edit reimbursement caps, and inspect cryptographic audit trails.</p>
+        <p className="text-sm text-slate-500 mt-1">Review the rules the system applies, the reimbursement spend caps, and the audit trail.</p>
       </div>
 
       {/* Navigation Tabs */}
@@ -181,165 +181,67 @@ export default function SuperAdminDashboard({
       <>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* Global Policy Configurator form left */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
-          <form onSubmit={handleSavePolicy} className="space-y-5">
-            <h3 className="text-lg font-bold text-[#021934] border-b border-slate-100 pb-4 mb-2">Global Constants</h3>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Late Grace Period (Mins)</label>
-                  <input 
-                    type="number"
-                    value={gracePeriod}
-                    onChange={(e) => setGracePeriod(Number(e.target.value))}
-                    className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Overtime Rate</label>
-                  <input 
-                    type="text"
-                    value={otRate}
-                    onChange={(e) => setOtRate(e.target.value)}
-                    className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-                  />
-                </div>
+        {/* Left: the rules the system actually applies (read-only) */}
+        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+            <h3 className="text-lg font-bold text-[#021934]">System Rules</h3>
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+              <span className="material-symbols-outlined text-[13px]">lock</span> Read-only
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">These are the rules the system currently applies. They are fixed in the application &mdash; changing them requires a developer.</p>
+          <div className="space-y-3">
+            {[
+              ['Late arrival cut-off', 'Arriving after 09:30 earns a late mark'],
+              ['Standard shift', '9 hours; working less earns an early mark'],
+              ['Free marks per month', 'The first 3 late or early marks are auto-waived; beyond that they go to CFO / admin review'],
+              ['Earned leave accrual', '1.5 days per month, up to a maximum of 18 days'],
+              ['Unexplained absence', 'No leave and no punch on a past working day leads to a full-day deduction once HR approves'],
+              ['Reimbursement cut-off', 'Managed on the Finance tab'],
+            ].map(([k, v]) => (
+              <div key={k} className="flex flex-col gap-0.5 border border-slate-100 rounded-xl p-3">
+                <span className="text-xs font-bold text-slate-700">{k}</span>
+                <span className="text-sm text-slate-500">{v}</span>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Holiday OT Rate</label>
-                  <input 
-                    type="text"
-                    value={holidayRate}
-                    onChange={(e) => setHolidayRate(e.target.value)}
-                    className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Leave Accrual Rate</label>
-                  <input 
-                    type="text"
-                    value={leaveAccrual}
-                    onChange={(e) => setLeaveAccrual(e.target.value)}
-                    className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">SLA Escalation window</label>
-                <input 
-                  type="text"
-                  value={slaEscalation}
-                  onChange={(e) => setSlaEscalation(e.target.value)}
-                  className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-                />
-              </div>
-            </div>
-
-            <button 
-              type="submit"
-              className="w-full bg-[#021934] hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-lg transition-colors shadow-md flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-outlined text-[18px]">verified</span>
-              Write constants to Database
-            </button>
-          </form>
+            ))}
+          </div>
         </div>
 
-        {/* Reimbursement Guardrails Limits Table right */}
+        {/* Right: reimbursement spend caps (read-only) */}
         <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
           <div>
-            <h3 className="text-lg font-bold text-[#021934] border-b border-slate-100 pb-4 mb-4">Reimbursement Guardrails</h3>
-            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+              <h3 className="text-lg font-bold text-[#021934]">Reimbursement Guardrails</h3>
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                <span className="material-symbols-outlined text-[13px]">lock</span> Read-only
+              </span>
+            </div>
             <div className="space-y-4">
+              {guardrails.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-8">No spend caps are configured.</p>
+              )}
               {guardrails.map((g) => (
-                <div key={g.category} className="border border-slate-100 p-4 rounded-xl flex items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
-                  {editingCategory === g.category ? (
-                    <div className="w-full space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-bold text-slate-700">{g.category}</span>
-                        <div className="flex gap-2">
-                          <button 
-                            type="button" 
-                            onClick={handleSaveGuardrail}
-                            className="bg-green-600 text-white font-bold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded"
-                          >
-                            Save
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => setEditingCategory(null)}
-                            className="border border-slate-200 text-slate-500 font-bold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded hover:bg-slate-100"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-0.5">
-                          <label className="text-[10px] font-bold text-slate-400 block uppercase">Monthly Cap (₹)</label>
-                          <input 
-                            type="number"
-                            value={editCap}
-                            onChange={(e) => setEditCap(e.target.value)}
-                            className="w-full border border-slate-200 p-1 rounded font-mono text-xs"
-                          />
-                        </div>
-                        <div className="space-y-0.5">
-                          <label className="text-[10px] font-bold text-slate-400 block uppercase">Proof Required</label>
-                          <div className="flex items-center gap-2 mt-1">
-                            <input 
-                              type="checkbox"
-                              checked={editProof}
-                              onChange={(e) => setEditProof(e.target.checked)}
-                              className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                            />
-                            <span className="text-xs text-slate-600">Required</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <div className="font-bold text-slate-800 text-sm">{g.category}</div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Cap: <span className="font-mono font-bold text-slate-600">₹{g.monthlyCap.toLocaleString()}</span> • 
-                          Proof: <span className="font-semibold text-slate-500">{g.proofRequired ? 'Required' : 'None'}</span>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          g.status === 'ACTIVE' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'
-                        }`}>
-                          {g.status}
-                        </span>
-                        
-                        <button 
-                          onClick={() => handleEditGuardrailClick(g)}
-                          className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">edit</span>
-                        </button>
-                      </div>
-                    </>
-                  )}
+                <div key={g.category} className="border border-slate-100 p-4 rounded-xl flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-bold text-slate-800 text-sm">{g.category}</div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Cap: <span className="font-mono font-bold text-slate-600">&#8377;{g.monthlyCap.toLocaleString()}</span> &bull;{' '}
+                      Proof: <span className="font-semibold text-slate-500">{g.proofRequired ? 'Required' : 'None'}</span>
+                    </p>
+                  </div>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                    g.status === 'ACTIVE' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'
+                  }`}>
+                    {g.status}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
-
           <div className="text-xs text-slate-400 italic text-center mt-6">
-            Changes are written directly to internal server configuration files.
+            Spend caps are applied when employees submit claims. They are read-only here.
           </div>
         </div>
-
       </div>
 
       {/* System Audit Trail View bottom */}
