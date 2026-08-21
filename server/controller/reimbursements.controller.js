@@ -19,7 +19,9 @@ const CreateReimbursementSchema = z.object({
     // The regex alone accepts impossible dates like 2026-02-30, which then become NaN and slip
     // past the cut-off check. Confirm it is a real calendar date.
     .refine((s) => { const d = new Date(s + 'T00:00:00Z'); return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s; }, 'Expense date is not a real calendar date'),
-  category: z.string().min(1, 'Category is required').max(100),
+  // Trim first, then require non-empty: stops a trailing-space category (e.g. 'Travel ') from
+  // dodging the exact-match monthly cap by not matching the 'Travel' guardrail row.
+  category: z.string().max(100).transform((v) => v.trim()).refine((v) => v.length > 0, 'Category is required'),
   amount: z.coerce.number().positive('Amount must be greater than zero').max(10_000_000, 'Amount is too large'),
   description: z.string().max(1000).optional(),
   costCentre: z.string().max(100).optional().nullable(),
@@ -101,6 +103,13 @@ async function claimPolicyError({ userId, expenseDate, category, amount, exclude
     return `You already have an open ${category} claim for ₹${amount} on this date (${dup.id}).`;
   }
 
+  // No future-dated expenses: a future date has negative "days since", which slips past the
+  // cut-off check, and it buckets the claim into a future pay period.
+  const istToday = new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+  if (expenseDate > istToday) {
+    return 'The expense date cannot be in the future.';
+  }
+
   // Cut-off window.
   const policy = (await pool.query('SELECT reimbursement_cutoff_days FROM global_policy WHERE id = 1')).rows[0];
   const cutoff = policy?.reimbursement_cutoff_days ?? 30;
@@ -109,15 +118,17 @@ async function claimPolicyError({ userId, expenseDate, category, amount, exclude
     return `Submission rejected: Expense is older than the policy cut-off of ${cutoff} days.`;
   }
 
-  // Monthly category cap (only where an active guardrail exists; uncapped otherwise).
+  // Monthly category cap (only where an active guardrail exists; uncapped otherwise). Matched
+  // case-insensitively so a different-cased category (e.g. 'travel' vs the 'Travel' guardrail)
+  // can't dodge the cap. The category is already trimmed by the schema.
   const guardrail = (await pool.query(
-    'SELECT monthly_cap FROM guardrails WHERE category = $1 AND monthly_cap > 0', [category]
+    'SELECT monthly_cap FROM guardrails WHERE LOWER(category) = LOWER($1) AND monthly_cap > 0', [category]
   )).rows[0];
   if (guardrail) {
     const expenseMonth = expenseDate.substring(0, 7);
     const spent = Number((await pool.query(
       `SELECT COALESCE(SUM(amount), 0) AS total FROM reimbursements
-         WHERE user_id = $1 AND category = $2 AND status NOT IN ('Rejected', 'Cancelled')
+         WHERE user_id = $1 AND LOWER(category) = LOWER($2) AND status NOT IN ('Rejected', 'Cancelled')
            AND expense_date LIKE $3 AND ($4::text IS NULL OR id <> $4)`,
       [userId, category, expenseMonth + '%', excludeId]
     )).rows[0].total);

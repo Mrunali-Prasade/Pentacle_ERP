@@ -30,6 +30,12 @@ export const createLeaveRequest = async (req, res) => {
   if (!type || !fromDate || !toDate || !reqDays) {
       return res.status(400).json({ error: 'Missing required fields' });
   }
+  // Coerce to a number so the strict `=== 0.5` half-day checks work whether the client sent a
+  // number or a string ("0.5").
+  reqDays = Number(reqDays);
+  if (!Number.isFinite(reqDays) || reqDays <= 0) {
+      return res.status(400).json({ error: 'Invalid number of leave days.' });
+  }
   // Validate the dates and bound the range. The day-by-day loop below would otherwise spin
   // hundreds of thousands of times for an absurd range like 1900-01-01 → 2999-12-31, blocking
   // the event loop, and would store a nonsensical leave length.
@@ -49,6 +55,12 @@ export const createLeaveRequest = async (req, res) => {
   const istToday = new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
   if (fromDate < istToday) {
       return res.status(400).json({ error: 'You cannot apply for leave on a date that has already passed. Ask HR to adjust a past day.' });
+  }
+
+  // A half-day leave must be a single day — otherwise a 0.5-day request spanning a range would
+  // exempt every day in the range from attendance while debiting only half a day.
+  if (reqDays === 0.5 && fromDate !== toDate) {
+      return res.status(400).json({ error: 'A half-day leave must be for a single day (use the same start and end date).' });
   }
 
   // Serialize concurrent leave submissions for the SAME employee. Without this, two requests
