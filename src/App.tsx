@@ -17,6 +17,7 @@ import FinanceHeadDashboard from './components/dashboards/FinanceHeadDashboard';
 import CFODashboard from './components/dashboards/CFODashboard';
 import AdminHRDashboard from './components/dashboards/AdminHRDashboard';
 import SuperAdminDashboard from './components/dashboards/SuperAdminDashboard';
+import SuperAdminConsole from './components/dashboards/SuperAdminConsole';
 import ProfileSettingsView from './components/shared/ProfileSettingsView';
 import ExtraAccessView from './components/dashboards/employee/ExtraAccessView';
 import Avatar from './components/common/Avatar';
@@ -106,14 +107,23 @@ export default function App() {
         setPayslips(p);
         setEmployeesList(e);
       } else if (role === 'super_admin') {
-        const [p, g, a] = await Promise.all([
+        // The company head's full-access console mounts every operational dashboard, so load the
+        // architect data AND the operational data (employees, payslips, claims). All allowed:
+        // super_admin bypasses every permission check on the backend.
+        const [p, g, a, c, e, pay] = await Promise.all([
           fetch('/api/policy').then(res => res.json()),
           fetch('/api/guardrails').then(res => res.json()),
-          fetch('/api/audit-logs').then(res => res.json())
+          fetch('/api/audit-logs').then(res => res.json()),
+          fetch('/api/reimbursements').then(res => res.json()),
+          fetch('/api/admin/employees').then(res => res.json()),
+          fetch('/api/payslips').then(res => res.json())
         ]);
         setPolicy(p);
         setGuardrails(g);
         setAuditLogs(a);
+        setClaims(c);
+        setEmployeesList(e);
+        setPayslips(pay);
       }
     } catch (e) {
       console.error('Failed to fetch data', e);
@@ -346,8 +356,25 @@ export default function App() {
 
       case 'super_admin':
         return (
-          policy ? 
-          <SuperAdminDashboard policy={policy} guardrails={guardrails} auditLogs={auditLogs} onUpdatePolicy={handleUpdatePolicy} onUpdateGuardrail={handleUpdateGuardrail} onAddAuditLog={handleAddAuditLog} triggerToast={triggerToast} />
+          policy ?
+          <SuperAdminConsole
+            user={user}
+            policy={policy}
+            guardrails={guardrails}
+            auditLogs={auditLogs}
+            claims={claims}
+            employeesList={employeesList}
+            payslips={payslips}
+            onUpdatePolicy={handleUpdatePolicy}
+            onUpdateGuardrail={handleUpdateGuardrail}
+            onAddAuditLog={handleAddAuditLog}
+            onUpdateClaimStatus={handleUpdateClaimStatus}
+            onUpdateEmployee={handleUpdateEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
+            onPayClaim={handlePayClaim}
+            onRunPayroll={handleRunPayroll}
+            triggerToast={triggerToast}
+          />
           : <div className="p-8 text-center"><p>Loading Admin Data...</p></div>
         );
 
