@@ -4,13 +4,13 @@ interface PolicyEditTabProps {
   triggerToast: (message: string, variant?: string) => void;
 }
 
-// Self-contained: fetches and PUTs directly against /api/policy. Kept separate from
-// SuperAdminDashboard's own policy form (which currently only updates local React state and
-// never persists — a pre-existing bug outside this feature's scope) so that a permission-only
-// grantee gets a form that actually saves.
+// Read-only view of the global policy constants. These values are informational only: the
+// attendance, overtime and leave rules are fixed in the application code, so editing these and
+// "saving" them would change nothing — which was misleading, especially since this screen can be
+// granted to any user via Access Control. This mirrors the honest, read-only System Policy screen
+// on the Super Admin console.
 export default function PolicyEditTab({ triggerToast }: PolicyEditTabProps) {
   const [policy, setPolicy] = useState<any>(null);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetch('/api/policy')
@@ -20,28 +20,6 @@ export default function PolicyEditTab({ triggerToast }: PolicyEditTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const res = await fetch('/api/policy', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(policy),
-      });
-      if (res.ok) {
-        triggerToast('Global system policy constants written to database');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        triggerToast(data.error || 'Failed to update policy');
-      }
-    } catch {
-      triggerToast('Error updating policy');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (!policy) {
     return (
       <div className="text-center py-16">
@@ -50,66 +28,39 @@ export default function PolicyEditTab({ triggerToast }: PolicyEditTabProps) {
     );
   }
 
+  const rows = [
+    { label: 'Late Grace Period', value: policy.lateGracePeriod != null ? `${policy.lateGracePeriod} mins` : '—' },
+    { label: 'Overtime Rate', value: policy.overtimeRate || '—' },
+    { label: 'Holiday OT Rate', value: policy.holidayOtRate || '—' },
+    { label: 'Leave Accrual Rate', value: policy.leaveAccrual || '—' },
+    { label: 'SLA Escalation Window', value: policy.slaEscalation || '—', full: true },
+  ];
+
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs max-w-2xl">
-      <form onSubmit={handleSave} className="space-y-5">
-        <h3 className="text-lg font-bold text-[#021934] border-b border-slate-100 pb-4 mb-2">Global Constants</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Late Grace Period (Mins)</label>
-            <input
-              type="number"
-              value={policy.lateGracePeriod}
-              onChange={e => setPolicy({ ...policy, lateGracePeriod: Number(e.target.value) })}
-              className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-            />
+      <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
+        <h3 className="text-lg font-bold text-[#021934]">Global Constants</h3>
+        <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
+          <span className="material-symbols-outlined text-[16px]">lock</span>
+          READ-ONLY
+        </span>
+      </div>
+
+      <p className="text-sm text-slate-500 mb-5 leading-relaxed">
+        These values are shown for reference. The attendance, overtime and leave rules are fixed in
+        the application — changing them requires a developer.
+      </p>
+
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {rows.map(r => (
+          <div key={r.label} className={`space-y-1 ${r.full ? 'sm:col-span-2' : ''}`}>
+            <dt className="text-xs font-bold text-slate-500 uppercase tracking-wider">{r.label}</dt>
+            <dd className="w-full border border-slate-200 bg-slate-50 p-2.5 rounded-lg text-sm text-slate-700 font-mono">
+              {r.value}
+            </dd>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Overtime Rate</label>
-            <input
-              type="text"
-              value={policy.overtimeRate}
-              onChange={e => setPolicy({ ...policy, overtimeRate: e.target.value })}
-              className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Holiday OT Rate</label>
-            <input
-              type="text"
-              value={policy.holidayOtRate}
-              onChange={e => setPolicy({ ...policy, holidayOtRate: e.target.value })}
-              className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Leave Accrual Rate</label>
-            <input
-              type="text"
-              value={policy.leaveAccrual}
-              onChange={e => setPolicy({ ...policy, leaveAccrual: e.target.value })}
-              className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-            />
-          </div>
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">SLA Escalation Window</label>
-          <input
-            type="text"
-            value={policy.slaEscalation}
-            onChange={e => setPolicy({ ...policy, slaEscalation: e.target.value })}
-            className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full bg-[#021934] hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-lg transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          <span className="material-symbols-outlined text-[18px]">verified</span>
-          {saving ? 'Saving...' : 'Write constants to Database'}
-        </button>
-      </form>
+        ))}
+      </dl>
     </div>
   );
 }
