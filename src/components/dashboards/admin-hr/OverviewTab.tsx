@@ -5,9 +5,12 @@ interface OverviewTabProps {
   resignationsToProcess: any[];
   onUpdateEmployee: (employeeId: string, data: any) => Promise<void>;
   onShowLiveAttendance: () => void;
+  // The personal punch clock is shown by default (HR admins are staff who punch in). The
+  // full-access Administrator console passes false — the company head does not clock in/out.
+  showPunchClock?: boolean;
 }
 
-export default function OverviewTab({ metrics, resignationsToProcess, onUpdateEmployee, onShowLiveAttendance }: OverviewTabProps) {
+export default function OverviewTab({ metrics, resignationsToProcess, onUpdateEmployee, onShowLiveAttendance, showPunchClock = true }: OverviewTabProps) {
   const overviewCards = [
     { title: 'Total Employees', icon: 'groups', value: metrics.totalEmployees },
     { title: 'Employees At Work', icon: 'work', value: metrics.employeesAtWork, onClick: onShowLiveAttendance },
@@ -83,11 +86,13 @@ export default function OverviewTab({ metrics, resignationsToProcess, onUpdateEm
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 lg:col-span-4">
-          <PunchClock />
+      {showPunchClock && (
+        <div className="grid grid-cols-12 gap-6">
+          <div className="col-span-12 lg:col-span-4">
+            <PunchClock />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
