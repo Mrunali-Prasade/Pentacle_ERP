@@ -14,7 +14,7 @@ types.setTypeParser(1700, (val) => (val === null ? null : parseFloat(val)));
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.PRISMA_DATABASE_URL;
+const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
 if (!connectionString) {
   const msg = 'FATAL: No Postgres connection string found. Set POSTGRES_URL in your environment variables.';

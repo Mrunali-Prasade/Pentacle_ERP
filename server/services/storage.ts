@@ -1,13 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// `require` is not defined in native ESM; create one so the optional @google-cloud/storage
-// dependency can be loaded lazily without crashing at module-eval time.
-const require = createRequire(import.meta.url);
 
 export interface StorageService {
     uploadFile(sourceFilePath: string, destinationPath: string, contentType?: string): Promise<string>;
@@ -82,57 +78,6 @@ export class LocalStorageService implements StorageService {
                 else resolve();
             });
         });
-    }
-}
-
-export class CloudStorageService implements StorageService {
-    readonly isDurable = true;
-    private bucketName: string;
-    // We import dynamically or require it so that if it's missing it doesn't crash the whole app
-    private storageClient: any;
-    private bucket: any;
-
-    constructor(bucketName: string) {
-        this.bucketName = bucketName;
-        const { Storage } = require('@google-cloud/storage');
-        this.storageClient = new Storage();
-        this.bucket = this.storageClient.bucket(this.bucketName);
-    }
-
-    async uploadFile(sourceFilePath: string, destinationPath: string, contentType?: string): Promise<string> {
-        const normalized = destinationPath.replace(/\\/g, '/');
-        await this.bucket.upload(sourceFilePath, {
-            destination: normalized,
-            metadata: contentType ? { contentType } : undefined
-        });
-        return this.getFileUrl(normalized);
-    }
-
-    async uploadBuffer(buffer: Buffer, destinationPath: string, contentType?: string): Promise<string> {
-        const normalized = destinationPath.replace(/\\/g, '/');
-        const file = this.bucket.file(normalized);
-        await file.save(buffer, {
-            metadata: contentType ? { contentType } : undefined,
-            resumable: false
-        });
-        return this.getFileUrl(normalized);
-    }
-
-    getFileUrl(destinationPath: string): string {
-        const normalized = destinationPath.replace(/\\/g, '/');
-        // Return a public Google Cloud Storage URL
-        return `https://storage.googleapis.com/${this.bucketName}/${normalized}`;
-    }
-
-    async deleteFile(destinationPath: string): Promise<void> {
-        const normalized = destinationPath.replace(/\\/g, '/');
-        try {
-            await this.bucket.file(normalized).delete();
-        } catch (e: any) {
-            if (e.code !== 404) {
-                throw e;
-            }
-        }
     }
 }
 
@@ -258,10 +203,6 @@ function selectStorage(): StorageService {
             drive: ONEDRIVE_DRIVE,
             rootFolder: process.env.ONEDRIVE_FOLDER,
         });
-    }
-    if (process.env.GCP_BUCKET_NAME) {
-        console.log('[Storage] Google Cloud Storage');
-        return new CloudStorageService(process.env.GCP_BUCKET_NAME);
     }
     console.warn(
         '[Storage] No durable storage configured — using local disk. Selfies stay inline in ' +

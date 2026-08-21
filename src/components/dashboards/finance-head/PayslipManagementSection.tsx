@@ -97,7 +97,7 @@ export default function PayslipManagementSection({ payslips, triggerToast, onSav
                     <td className="px-6 py-4 font-mono font-bold text-slate-800">₹{slip.netAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${
-                        slip.status === 'paid' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                        (slip.status as string) === 'paid' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
                       }`}>{slip.status}</span>
                     </td>
                     <td className="px-6 py-4 text-right">
