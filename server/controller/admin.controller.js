@@ -37,16 +37,16 @@ export const addHoliday = async (req, res) => {
       await pool.query('INSERT INTO holidays (date, name) VALUES ($1, $2) ON CONFLICT(date) DO UPDATE SET name = $2', [date, name]);
       // Postgres booleans: use false, not 0 (0 works in SQLite but errors as "boolean = integer" in pg).
       await pool.query('UPDATE attendance_records SET late_coming = false, early_leaving = false, half_day = false, awol = false WHERE date = $1', [date]);
-      const dateParam = new Date().toISOString().substring(0, 7);
-      await recalculateAttendanceSummaries(dateParam);
+      // Recalc the month the holiday falls in (for all employees), not the current calendar month.
+      await recalculateAttendanceSummaries(String(date).substring(0, 7));
       res.json({ success: true });
   } catch(e) { serverError(res, e); }
 };
 
 export const deleteHoliday = async (req, res) => {
   await pool.query('DELETE FROM holidays WHERE date = $1', [req.params.date]);
-  const dateParam = new Date().toISOString().substring(0, 7);
-  await recalculateAttendanceSummaries(dateParam);
+  // Recalc the month the (removed) holiday fell in, not the current calendar month.
+  await recalculateAttendanceSummaries(String(req.params.date).substring(0, 7));
   res.json({ success: true });
 };
 

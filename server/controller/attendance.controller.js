@@ -487,8 +487,9 @@ export const getMonthlyEmployeeAttendance = async (req, res) => {
   const results = [];
   const formatLocalTime = (isoString) => {
       if (!isoString) return null;
-      const d = new Date(isoString);
-      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      // UTC-stored timestamp shown in IST (+5:30), independent of the server's timezone.
+      const d = new Date(new Date(isoString).getTime() + 330 * 60 * 1000);
+      return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
   };
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -616,7 +617,7 @@ export const updateEmployeeTiming = async (req, res) => {
   const inPunch = firstPunch;
 
   // Capture the pre-edit timings so the audit trail can record what changed.
-  const fmtTs = (ts) => ts ? `${String(new Date(ts).getHours()).padStart(2, '0')}:${String(new Date(ts).getMinutes()).padStart(2, '0')}` : '-';
+  const fmtTs = (ts) => { if (!ts) return '-'; const t = new Date(new Date(ts).getTime() + 330 * 60 * 1000); return `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
   const oldInStr = inPunch && inPunch.punch_type === 'IN' ? fmtTs(inPunch.timestamp) : '-';
   const oldOutStr = outPunch ? fmtTs(outPunch.timestamp) : '-';
 

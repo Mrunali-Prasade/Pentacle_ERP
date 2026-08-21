@@ -4,6 +4,25 @@ import { pool } from '../config/app.config.js';
 import { calculateEarnedLeaveAccrued, getLeaveCycleStart, recalculateAttendanceSummaries } from '../services/attendance-engine.js';
 import { serverError } from './_shared.js';
 
+// A leave can straddle a month boundary, and recalculateAttendanceSummaries rebuilds exactly ONE
+// month. Recalc every 'YYYY-MM' the leave covers for that one employee — so submitting/approving
+// leave in a past month (or a cross-month leave) correctly rebuilds THAT month's absence/penalty
+// flags, instead of always rebuilding the current calendar month (which left the real month stale
+// and could leave an employee wrongly docked at payroll).
+async function recalcLeaveMonths(fromDate, toDate, employeeId) {
+  const start = String(fromDate).substring(0, 7);
+  const end = String(toDate || fromDate).substring(0, 7);
+  let [y, m] = start.split('-').map(Number);
+  const [ey, em] = end.split('-').map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return;
+  let guard = 0;
+  while ((y < ey || (y === ey && m <= em)) && guard < 24) {
+    await recalculateAttendanceSummaries(`${y}-${String(m).padStart(2, '0')}`, employeeId);
+    m++; if (m > 12) { m = 1; y++; }
+    guard++;
+  }
+}
+
 export const createLeaveRequest = async (req, res) => {
   const user = req.user;
   let { type, fromDate, toDate, days: reqDays, reason, certificateUrl } = req.body;
@@ -145,7 +164,7 @@ export const createLeaveRequest = async (req, res) => {
     ]);
     
     // Only the requester's own summary can change.
-    await recalculateAttendanceSummaries(new Date().toISOString().substring(0, 7), user.id);
+    await recalcLeaveMonths(fromDate, toDate, user.id);
     res.json({ success: true, message: 'Leave request submitted' });
   } catch (err) {
     console.error("Leave submission error:", err.message);
@@ -156,7 +175,7 @@ export const createLeaveRequest = async (req, res) => {
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [
             id, user.id, type, fromDate, toDate, days, paid_days, unpaid_days, 'Pending', certificateUrl || null
         ]);
-        await recalculateAttendanceSummaries(new Date().toISOString().substring(0, 7), user.id);
+        await recalcLeaveMonths(fromDate, toDate, user.id);
         return res.json({ success: true, message: 'Leave request submitted' });
       } catch (fallbackErr) {
         return res.status(500).json({ error: fallbackErr.message || "Failed to submit leave" });
@@ -232,7 +251,7 @@ export const updateLeaveRequestStatus = async (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
-  const leave = (await pool.query('SELECT days, employee_id FROM leave_requests WHERE id = $1', [leaveId])).rows[0];
+  const leave = (await pool.query('SELECT days, employee_id, from_date, to_date FROM leave_requests WHERE id = $1', [leaveId])).rows[0];
   if (!leave) return res.status(404).json({ error: 'Leave request not found' });
 
   // Segregation of duties: you cannot approve/reject your OWN leave request, whatever your
@@ -256,7 +275,8 @@ export const updateLeaveRequestStatus = async (req, res) => {
       await pool.query("UPDATE leave_requests SET status = $1 WHERE id = $2", [status, leaveId]);
   }
 
-  // Approving or rejecting leave only changes that one employee's summary.
-  await recalculateAttendanceSummaries(new Date().toISOString().substring(0, 7), leave.employee_id);
+  // Approving or rejecting leave changes only that one employee's summary — for the month(s) the
+  // leave actually falls in, which may not be the current calendar month.
+  await recalcLeaveMonths(leave.from_date, leave.to_date, leave.employee_id);
   res.json({ success: true });
 };

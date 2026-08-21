@@ -51,9 +51,13 @@ export function evaluateAttendanceDay(finalIn, finalOut, policy) {
     if (diffMs > 0) workedHours = diffMs / 3_600_000;
   }
 
-  const isLate = !!finalIn && (
-    finalIn.getHours() > limitH ||
-    (finalIn.getHours() === limitH && finalIn.getMinutes() > limitM)
+  // Compare arrival against the policy cut-off in IST, independent of the server's timezone.
+  // Punch timestamps are stored in UTC; shifting by +5:30 and reading the UTC clock yields IST,
+  // so late detection is correct whether the host runs in UTC (e.g. Vercel) or IST (local dev).
+  const istIn = finalIn ? new Date(finalIn.getTime() + 330 * 60 * 1000) : null;
+  const isLate = !!istIn && (
+    istIn.getUTCHours() > limitH ||
+    (istIn.getUTCHours() === limitH && istIn.getUTCMinutes() > limitM)
   );
 
   // Only a day with both punches can be judged short. Missing OUT => Incomplete, no mark.
@@ -241,7 +245,8 @@ async function runRecalculation(targetMonth, employeeId = null) {
               // attendance_records rows now only originate from an HR regularisation.
               const inSource = log.hasRecord && log.inTime ? 'Regularised' : (finalIn ? 'App' : null);
               const outSource = log.hasRecord && log.outTime ? 'Regularised' : (finalOut ? 'App' : null);
-              const fmt = (dt) => dt ? `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : null;
+              // Display punch times in IST regardless of server timezone (UTC-stored + 5:30).
+              const fmt = (dt) => { if (!dt) return null; const t = new Date(dt.getTime() + 330 * 60 * 1000); return `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
 
               dailyLogRows.push([
                 logId, u.employee_id, dateStr, fmt(finalIn), inSource,

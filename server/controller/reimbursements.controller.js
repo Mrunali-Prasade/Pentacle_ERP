@@ -85,6 +85,52 @@ export const getReimbursements = async (req, res) => {
   res.json(reimbursements);
 };
 
+// Shared claim guardrails (per-day duplicate, cut-off window, monthly category cap). Used by BOTH
+// createReimbursement and updateOwnReimbursement so the edit route cannot be used to bypass a cap
+// or cut-off. Returns an error string, or null when the claim is allowed. `excludeId` omits the
+// claim being edited from the duplicate and cap calculations (so a claim isn't blocked by itself).
+async function claimPolicyError({ userId, expenseDate, category, amount, excludeId = null }) {
+  // Duplicate: same user + date + amount + category among still-open claims.
+  const dup = (await pool.query(
+    `SELECT id FROM reimbursements
+       WHERE user_id = $1 AND expense_date = $2 AND amount = $3 AND category = $4
+         AND status NOT IN ('Rejected', 'Cancelled') AND ($5::text IS NULL OR id <> $5)`,
+    [userId, expenseDate, amount, category, excludeId]
+  )).rows[0];
+  if (dup) {
+    return `You already have an open ${category} claim for ₹${amount} on this date (${dup.id}).`;
+  }
+
+  // Cut-off window.
+  const policy = (await pool.query('SELECT reimbursement_cutoff_days FROM global_policy WHERE id = 1')).rows[0];
+  const cutoff = policy?.reimbursement_cutoff_days ?? 30;
+  const daysSinceExpense = Math.floor((Date.now() - new Date(expenseDate).getTime()) / (1000 * 60 * 60 * 24));
+  if (daysSinceExpense > cutoff) {
+    return `Submission rejected: Expense is older than the policy cut-off of ${cutoff} days.`;
+  }
+
+  // Monthly category cap (only where an active guardrail exists; uncapped otherwise).
+  const guardrail = (await pool.query(
+    'SELECT monthly_cap FROM guardrails WHERE category = $1 AND monthly_cap > 0', [category]
+  )).rows[0];
+  if (guardrail) {
+    const expenseMonth = expenseDate.substring(0, 7);
+    const spent = Number((await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM reimbursements
+         WHERE user_id = $1 AND category = $2 AND status NOT IN ('Rejected', 'Cancelled')
+           AND expense_date LIKE $3 AND ($4::text IS NULL OR id <> $4)`,
+      [userId, category, expenseMonth + '%', excludeId]
+    )).rows[0].total);
+    if (spent + Number(amount) > Number(guardrail.monthly_cap)) {
+      const remaining = Math.max(0, Number(guardrail.monthly_cap) - spent);
+      return `Monthly limit for ${category} is ₹${Number(guardrail.monthly_cap).toLocaleString('en-IN')}. ` +
+             `You have already claimed ₹${spent.toLocaleString('en-IN')} this month, so only ` +
+             `₹${remaining.toLocaleString('en-IN')} remains.`;
+    }
+  }
+  return null;
+}
+
 export const createReimbursement = async (req, res) => {
   const user = req.user;
 
@@ -97,49 +143,9 @@ export const createReimbursement = async (req, res) => {
   const { expenseDate, category, amount, description, costCentre, proofFileName, proofFileSize, proofFileData } = parsed.data;
   const currency = 'INR';
 
-  // Rejected and cancelled claims are excluded, otherwise an employee could never
-  // resubmit a corrected version of a claim that was turned down. Category is included
-  // so two genuinely different expenses of the same value on one day are not blocked.
-  const duplicate = (await pool.query(
-    `SELECT id FROM reimbursements
-     WHERE user_id = $1 AND expense_date = $2 AND amount = $3 AND category = $4
-       AND status NOT IN ('Rejected', 'Cancelled')`,
-    [user.id, expenseDate, amount, category]
-  )).rows[0];
-  if (duplicate) {
-      return res.status(400).json({ error: `You already have an open ${category} claim for ₹${amount} on this date (${duplicate.id}).` });
-  }
-
-  const policy = (await pool.query('SELECT reimbursement_cutoff_days FROM global_policy WHERE id = 1')).rows[0];
-  const cutoff = policy?.reimbursement_cutoff_days ?? 30;
-  const daysSinceExpense = Math.floor((new Date().getTime() - new Date(expenseDate).getTime()) / (1000 * 60 * 60 * 24));
-  if (daysSinceExpense > cutoff) {
-      return res.status(400).json({ error: `Submission rejected: Expense is older than the policy cut-off of ${cutoff} days.` });
-  }
-
-  // Monthly category cap. Only applies where an active guardrail exists for the category;
-  // categories with no guardrail row are uncapped.
-  const guardrail = (await pool.query(
-    'SELECT monthly_cap FROM guardrails WHERE category = $1 AND monthly_cap > 0', [category]
-  )).rows[0];
-  if (guardrail) {
-      const expenseMonth = expenseDate.substring(0, 7);
-      const spent = Number((await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM reimbursements
-         WHERE user_id = $1 AND category = $2 AND status <> 'Rejected'
-           AND expense_date LIKE $3`,
-        [user.id, category, expenseMonth + '%']
-      )).rows[0].total);
-
-      if (spent + amount > Number(guardrail.monthly_cap)) {
-          const remaining = Math.max(0, Number(guardrail.monthly_cap) - spent);
-          return res.status(400).json({
-            error: `Monthly limit for ${category} is ₹${Number(guardrail.monthly_cap).toLocaleString('en-IN')}. ` +
-                   `You have already claimed ₹${spent.toLocaleString('en-IN')} this month, so only ` +
-                   `₹${remaining.toLocaleString('en-IN')} remains.`
-          });
-      }
-  }
+  // Shared guardrails: per-day duplicate, cut-off window, and monthly category cap.
+  const policyError = await claimPolicyError({ userId: user.id, expenseDate, category, amount });
+  if (policyError) return res.status(400).json({ error: policyError });
 
   const id = 'CLM-' + Math.floor(10000 + Math.random() * 90000);
   // ISO so the column sorts and filters correctly; it was a localised display string.
@@ -441,6 +447,11 @@ export const updateOwnReimbursement = async (req, res) => {
   }
   const { expenseDate, category, amount, description, costCentre, proofFileName, proofFileSize, proofFileData } = parsed.data;
 
+  // Same guardrails as a fresh submission — otherwise the edit route bypasses the cap / cut-off.
+  // The claim being edited is excluded from the duplicate + cap sums so it isn't blocked by itself.
+  const policyError = await claimPolicyError({ userId: claim.user_id, expenseDate, category, amount, excludeId: claimId });
+  if (policyError) return res.status(400).json({ error: policyError });
+
   // Only replace the stored receipt if a new file was actually attached.
   let storedProof = null;
   if (proofFileData) {
@@ -547,10 +558,17 @@ export const payReimbursement = async (req, res) => {
   const client = await pool.connect();
   try {
       await client.query('BEGIN');
-      await client.query(
-        "UPDATE reimbursements SET status = 'Paid', payment_proof_file_name = $1 WHERE id = $2",
+      // Guard the state change at the row level (not just the earlier read) so two concurrent pay
+      // requests — e.g. a double-click — can't both mark it Paid. Only the first updates a row; the
+      // second finds status already 'Paid', updates 0 rows, and aborts without a second payment.
+      const paid = await client.query(
+        "UPDATE reimbursements SET status = 'Paid', payment_proof_file_name = $1 WHERE id = $2 AND status <> 'Paid'",
         [storedProofName, claimId]
       );
+      if (paid.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'This claim has already been paid.' });
+      }
       await client.query(
         `INSERT INTO reimbursement_timeline (reimbursement_id, status, timestamp, actor, completed) VALUES ($1, $2, $3, $4, $5)`,
         [claimId, 'Paid', new Date().toISOString(), user.name, true]

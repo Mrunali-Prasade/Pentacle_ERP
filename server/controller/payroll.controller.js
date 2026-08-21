@@ -257,9 +257,12 @@ export const runPayroll = async (req, res) => {
           )).rows;
           for (const r of leaveRows) leaveMap.set(r.employee_id, r.lops);
 
+          // Only deduct a loan for pay periods on/after its start_month. Without this, re-running an
+          // earlier month (allowed once the month has ended) would deduct an instalment for a month
+          // in which the loan did not yet exist, corrupting that payslip and the loan balance.
           const loanRows = (await client.query(
-              'SELECT id, employee_id, monthly_instalment, remaining_balance FROM loans WHERE remaining_balance > 0 AND employee_id = ANY($1)',
-              [empIds]
+              'SELECT id, employee_id, monthly_instalment, remaining_balance FROM loans WHERE remaining_balance > 0 AND LEFT(start_month, 7) <= $2 AND employee_id = ANY($1)',
+              [empIds, currentMonth]
           )).rows;
           for (const loan of loanRows) {
               if (!loansByEmp.has(loan.employee_id)) loansByEmp.set(loan.employee_id, []);
@@ -275,7 +278,11 @@ export const runPayroll = async (req, res) => {
           // old `unpaidLeaves.lops || 0` exactly (lops was null when there were no matching rows).
           const unpaidLeaveDays = (leaveMap.has(emp.id) ? leaveMap.get(emp.id) : null) || 0;
 
-          const absentDays = emp.awol + unpaidLeaveDays;
+          // deduction_amount already includes full-day absences (awol) PLUS confirmed late/early
+          // half-day penalties (0.5 each). Using it — not awol alone — makes confirmed punctuality
+          // penalties actually reduce pay. When there are no penalty marks, deduction_amount == awol,
+          // so an ordinary month is unchanged.
+          const absentDays = emp.deduction_amount + unpaidLeaveDays;
           const {
               paidDays, earnedGrossAmount, basicSalary, hra, conveyanceAllowance, otherAllowance,
               specialAllowance, providentFund, employerPf, pension, professionalTax, incomeTax,
