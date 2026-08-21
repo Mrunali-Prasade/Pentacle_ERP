@@ -54,7 +54,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         <div className="bg-white border border-slate-200 shadow-xl rounded-2xl overflow-hidden">
           <div className="p-8 pb-4 text-center">
             <div className="flex justify-center mb-4">
-              <img src="/logo-dark.png" alt="Pentacle Logo" className="h-16 w-auto max-w-full object-contain" />
+              <img src="/logo-dark.png" alt="Pentacle Logo" className="w-72 max-w-full h-auto object-contain" />
             </div>
             <p className="text-sm text-slate-500 mt-3 font-medium uppercase tracking-widest">Welcome to Pentacle</p>
           </div>
