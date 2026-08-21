@@ -200,6 +200,11 @@ pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_emp_unique ON salary_st
 pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payslips_user_period_unique ON payslips (user_id, pay_period)')
   .catch((e) => console.error('[Migrate] payslip uniqueness:', e.message));
 
+// The System Policy screen is read-only (its constants are fixed in code), so relabel the
+// permission from the misleading "Edit ..." to "View ...". Idempotent — only the old label matches.
+pool.query("UPDATE permissions SET label = 'View global system policy' WHERE key = 'policy.edit' AND label = 'Edit global system policy constants'")
+  .catch((e) => console.error('[Migrate] policy permission label:', e.message));
+
 // The attendance rules read global_policy WHERE id = 1. Without that row every setting
 // silently falls back to a hardcoded default and the admin policy screen has nothing to edit.
 pool.query(`

@@ -294,7 +294,7 @@ INSERT INTO permissions (key, label, category) VALUES
     ('payroll.run', 'Run the monthly payroll', 'Payroll'),
     ('payroll.lock.view', 'View payroll lock status', 'Payroll'),
     ('payroll.lock.manage', 'Lock / unlock a payroll month', 'Payroll'),
-    ('policy.edit', 'Edit global system policy constants', 'Admin & Policy'),
+    ('policy.edit', 'View global system policy', 'Admin & Policy'),
     ('holidays.manage', 'Add or remove holidays', 'Admin & Policy'),
     ('audit_logs.view', 'View the system audit trail', 'Admin & Policy')
 ON CONFLICT (key) DO NOTHING;

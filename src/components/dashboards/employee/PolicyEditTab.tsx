@@ -1,66 +1,36 @@
-import { useEffect, useState } from 'react';
-
 interface PolicyEditTabProps {
   triggerToast: (message: string, variant?: string) => void;
 }
 
-// Read-only view of the global policy constants. These values are informational only: the
-// attendance, overtime and leave rules are fixed in the application code, so editing these and
-// "saving" them would change nothing — which was misleading, especially since this screen can be
-// granted to any user via Access Control. This mirrors the honest, read-only System Policy screen
-// on the Super Admin console.
-export default function PolicyEditTab({ triggerToast }: PolicyEditTabProps) {
-  const [policy, setPolicy] = useState<any>(null);
-
-  useEffect(() => {
-    fetch('/api/policy')
-      .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load policy')))
-      .then(setPolicy)
-      .catch(() => triggerToast('Could not load global policy'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (!policy) {
-    return (
-      <div className="text-center py-16">
-        <span className="material-symbols-outlined animate-spin text-slate-300 text-[32px]">sync</span>
-      </div>
-    );
-  }
-
-  const rows = [
-    { label: 'Late Grace Period', value: policy.lateGracePeriod != null ? `${policy.lateGracePeriod} mins` : '—' },
-    { label: 'Overtime Rate', value: policy.overtimeRate || '—' },
-    { label: 'Holiday OT Rate', value: policy.holidayOtRate || '—' },
-    { label: 'Leave Accrual Rate', value: policy.leaveAccrual || '—' },
-    { label: 'SLA Escalation Window', value: policy.slaEscalation || '—', full: true },
-  ];
-
+// Read-only "System Rules" — identical to the honest System Policy screen on the Super Admin
+// console. These rules are fixed in the application code; this screen is purely informational, so
+// it is safe to grant via Access Control (it can never change anything). No editable fields, no
+// "save" that does nothing.
+export default function PolicyEditTab(_props: PolicyEditTabProps) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs max-w-2xl">
-      <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
-        <h3 className="text-lg font-bold text-[#021934]">Global Constants</h3>
-        <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
-          <span className="material-symbols-outlined text-[16px]">lock</span>
-          READ-ONLY
+      <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+        <h3 className="text-lg font-bold text-[#021934]">System Rules</h3>
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+          <span className="material-symbols-outlined text-[13px]">lock</span> Read-only
         </span>
       </div>
-
-      <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-        These values are shown for reference. The attendance, overtime and leave rules are fixed in
-        the application — changing them requires a developer.
-      </p>
-
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {rows.map(r => (
-          <div key={r.label} className={`space-y-1 ${r.full ? 'sm:col-span-2' : ''}`}>
-            <dt className="text-xs font-bold text-slate-500 uppercase tracking-wider">{r.label}</dt>
-            <dd className="w-full border border-slate-200 bg-slate-50 p-2.5 rounded-lg text-sm text-slate-700 font-mono">
-              {r.value}
-            </dd>
+      <p className="text-xs text-slate-500 mb-4">These are the rules the system currently applies. They are fixed in the application &mdash; changing them requires a developer.</p>
+      <div className="space-y-3">
+        {[
+          ['Late arrival cut-off', 'Arriving after 09:30 earns a late mark'],
+          ['Standard shift', '9 hours; working less earns an early mark'],
+          ['Free marks per month', 'The first 3 late or early marks are auto-waived; beyond that they go to CFO / admin review'],
+          ['Earned leave accrual', '1.5 days per month, up to a maximum of 18 days'],
+          ['Unexplained absence', 'No leave and no punch on a past working day leads to a full-day deduction once HR approves'],
+          ['Reimbursement cut-off', 'Managed on the Finance tab'],
+        ].map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-0.5 border border-slate-100 rounded-xl p-3">
+            <span className="text-xs font-bold text-slate-700">{k}</span>
+            <span className="text-sm text-slate-500">{v}</span>
           </div>
         ))}
-      </dl>
+      </div>
     </div>
   );
 }
