@@ -13,6 +13,8 @@ interface PayslipsViewProps {
   triggerToast: (message: string) => void;
   claims?: ReimbursementClaim[];
   canEdit?: boolean;
+  // Called after a successful payslip edit so the parent can refresh (avoids stale rows).
+  onSaved?: () => void;
 }
 
 export default function PayslipsView({
@@ -23,7 +25,8 @@ export default function PayslipsView({
   department = 'Finance & Strategy',
   triggerToast,
   claims = [],
-  canEdit = false
+  canEdit = false,
+  onSaved
 }: PayslipsViewProps) {
   const [selectedSlip, setSelectedSlip] = useState<Payslip | null>(null);
   const [filterYear, setFilterYear] = useState<string>('all');
@@ -64,21 +67,30 @@ export default function PayslipsView({
     setSavingPayslip(true);
     try {
       const form = payslipEditForm;
-      const grossAmount = parseFloat(form.basicSalary) + parseFloat(form.hra) + parseFloat(form.specialAllowance) + parseFloat(form.conveyanceAllowance) + parseFloat(form.otherAllowance) + parseFloat(form.bonus);
-      const grossDeduction = parseFloat(form.providentFund) + parseFloat(form.professionalTax) + parseFloat(form.incomeTax) + parseFloat(form.lopDeduction) + parseFloat(form.otherDeductions);
+      // Coerce safely: a cleared field is '' → parseFloat('') is NaN, which serializes to null and
+      // corrupts the stored payslip. num() turns any non-number into 0 (the preview already did this).
+      const num = (v: any) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+      const basicSalary = num(form.basicSalary), hra = num(form.hra), specialAllowance = num(form.specialAllowance),
+            conveyanceAllowance = num(form.conveyanceAllowance), otherAllowance = num(form.otherAllowance), bonus = num(form.bonus),
+            providentFund = num(form.providentFund), professionalTax = num(form.professionalTax), incomeTax = num(form.incomeTax),
+            lopDeduction = num(form.lopDeduction), otherDeductions = num(form.otherDeductions);
+      const grossAmount = basicSalary + hra + specialAllowance + conveyanceAllowance + otherAllowance + bonus;
+      const grossDeduction = providentFund + professionalTax + incomeTax + lopDeduction + otherDeductions;
       const netAmount = grossAmount - grossDeduction;
       const amountToBank = netAmount;
       const res = await fetch(`/api/payslips/${editingPayslip.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, grossAmount, grossDeduction, netAmount, amountToBank })
+        body: JSON.stringify({ ...form, basicSalary, hra, specialAllowance, conveyanceAllowance, otherAllowance, bonus,
+          providentFund, professionalTax, incomeTax, lopDeduction, otherDeductions, grossAmount, grossDeduction, netAmount, amountToBank })
       });
       if (res.ok) {
         triggerToast('Payslip updated successfully!');
         setEditingPayslip(null);
+        onSaved?.();
       } else {
-        const err = await res.json();
-        triggerToast('Error: ' + err.error);
+        const err = await res.json().catch(() => ({}));
+        triggerToast('Error: ' + (err.error || 'Failed to update payslip'));
       }
     } finally {
       setSavingPayslip(false);

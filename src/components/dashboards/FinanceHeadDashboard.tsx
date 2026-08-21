@@ -15,6 +15,7 @@ interface FinanceHeadDashboardProps {
   onPayClaim: (claimId: string, proofFileName: string, proofFileData: string) => void;
   onRunPayroll: (month: string) => void;
   triggerToast: (message: string) => void;
+  onRefresh?: () => void;
 }
 
 export default function FinanceHeadDashboard({
@@ -23,7 +24,8 @@ export default function FinanceHeadDashboard({
   onUpdateClaimStatus,
   onPayClaim,
   onRunPayroll,
-  triggerToast
+  triggerToast,
+  onRefresh
 }: FinanceHeadDashboardProps) {
   const [showSlipClaim, setShowSlipClaim] = useState<ReimbursementClaim | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'claims' | 'payslips' | 'loans'>('overview');
@@ -371,7 +373,7 @@ export default function FinanceHeadDashboard({
       )}
 
       {activeTab === 'payslips' && (
-        <PayslipManagementSection payslips={payslips} triggerToast={triggerToast} />
+        <PayslipManagementSection payslips={payslips} triggerToast={triggerToast} onSaved={onRefresh} />
       )}
 
       {activeTab === 'loans' && (

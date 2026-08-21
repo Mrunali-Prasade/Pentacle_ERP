@@ -80,29 +80,26 @@ export default function App() {
   }, []);
 
   const fetchData = async (role: UserRole) => {
+    // Always resolve to a SAFE shape. A non-2xx response (or a thrown fetch) yields [] for lists
+    // and the given fallback for objects — never an error object. Without this, a transient API
+    // error would store `{error}` into an array slot and the next `.filter`/`.map`/`.reduce`
+    // would crash the whole dashboard to the ErrorBoundary screen.
+    const getArray = (url: string): Promise<any[]> =>
+      fetch(url).then(r => (r.ok ? r.json() : [])).then(d => (Array.isArray(d) ? d : [])).catch(() => []);
+    const getObject = <T,>(url: string, fallback: T): Promise<T> =>
+      fetch(url).then(r => (r.ok ? r.json() : fallback)).catch(() => fallback);
     try {
       if (role === 'employee') {
-        const [p, c] = await Promise.all([
-          fetch('/api/payslips').then(res => res.json()),
-          fetch('/api/reimbursements').then(res => res.json())
-        ]);
+        const [p, c] = await Promise.all([getArray('/api/payslips'), getArray('/api/reimbursements')]);
         setPayslips(p);
         setClaims(c);
       } else if (role === 'admin_hr') {
-        const [c, e, p] = await Promise.all([
-          fetch('/api/reimbursements').then(res => res.json()),
-          fetch('/api/admin/employees').then(res => res.json()),
-          fetch('/api/payslips').then(res => res.json())
-        ]);
+        const [c, e, p] = await Promise.all([getArray('/api/reimbursements'), getArray('/api/admin/employees'), getArray('/api/payslips')]);
         setClaims(c);
         setEmployeesList(e);
         setPayslips(p);
       } else if (role === 'finance_head' || role === 'cfo') {
-        const [c, p, e] = await Promise.all([
-          fetch('/api/reimbursements').then(res => res.json()),
-          fetch('/api/payslips').then(res => res.json()),
-          fetch('/api/admin/employees').then(res => res.json())
-        ]);
+        const [c, p, e] = await Promise.all([getArray('/api/reimbursements'), getArray('/api/payslips'), getArray('/api/admin/employees')]);
         setClaims(c);
         setPayslips(p);
         setEmployeesList(e);
@@ -111,12 +108,12 @@ export default function App() {
         // architect data AND the operational data (employees, payslips, claims). All allowed:
         // super_admin bypasses every permission check on the backend.
         const [p, g, a, c, e, pay] = await Promise.all([
-          fetch('/api/policy').then(res => res.json()),
-          fetch('/api/guardrails').then(res => res.json()),
-          fetch('/api/audit-logs').then(res => res.json()),
-          fetch('/api/reimbursements').then(res => res.json()),
-          fetch('/api/admin/employees').then(res => res.json()),
-          fetch('/api/payslips').then(res => res.json())
+          getObject('/api/policy', null),
+          getArray('/api/guardrails'),
+          getArray('/api/audit-logs'),
+          getArray('/api/reimbursements'),
+          getArray('/api/admin/employees'),
+          getArray('/api/payslips'),
         ]);
         setPolicy(p);
         setGuardrails(g);
@@ -284,6 +281,7 @@ export default function App() {
           employeeName={user.name}
           triggerToast={triggerToast}
           canEdit={['finance_head', 'cfo', 'super_admin'].includes(user.role) || !!user.permissions?.includes('payslips.edit')}
+          onSaved={() => fetchData(user.role)}
         />
       );
     }
@@ -339,13 +337,14 @@ export default function App() {
           );
         }
         return (
-          <FinanceHeadDashboard 
+          <FinanceHeadDashboard
             payslips={payslips}
-            claims={claims} 
-            onUpdateClaimStatus={handleUpdateClaimStatus} 
+            claims={claims}
+            onUpdateClaimStatus={handleUpdateClaimStatus}
             onPayClaim={handlePayClaim}
-            onRunPayroll={handleRunPayroll} 
-            triggerToast={triggerToast} 
+            onRunPayroll={handleRunPayroll}
+            triggerToast={triggerToast}
+            onRefresh={() => fetchData(user.role)}
           />
         );
 
@@ -374,6 +373,7 @@ export default function App() {
             onPayClaim={handlePayClaim}
             onRunPayroll={handleRunPayroll}
             triggerToast={triggerToast}
+            onRefresh={() => fetchData(user.role)}
           />
           : <div className="p-8 text-center"><p>Loading Admin Data...</p></div>
         );

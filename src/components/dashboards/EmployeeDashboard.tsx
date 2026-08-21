@@ -55,9 +55,13 @@ export default function EmployeeDashboard({ user, payslips, claims, onChangeView
   };
   
   const fetchLeaves = () => {
+    // Only store a properly-shaped leave object. A non-2xx response returns `{ error }`, which is
+    // truthy — storing it would crash the render that reads leaveData.earned/casual. Fall back to
+    // null (the loading/empty state) instead.
     fetch('/api/leaves/my')
-      .then(res => res.json())
-      .then(data => setLeaveData(data));
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => setLeaveData(data && data.earned ? data : null))
+      .catch(() => setLeaveData(null));
   };
   
   useEffect(() => {
@@ -238,12 +242,12 @@ export default function EmployeeDashboard({ user, payslips, claims, onChangeView
                   <span className="text-xs font-black text-[#021934]">18 Total / Year</span>
                 </div>
                 <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                  <span>Accrued: <strong className="text-green-600">{leaveData.earned.accrued}</strong></span>
-                  <span>Used: {leaveData.earned.used}</span>
-                  <span>Can Use Now: <strong className="text-[#021934]">{leaveData.earned.balance}</strong></span>
+                  <span>Accrued: <strong className="text-green-600">{leaveData.earned?.accrued ?? 0}</strong></span>
+                  <span>Used: {leaveData.earned?.used ?? 0}</span>
+                  <span>Can Use Now: <strong className="text-[#021934]">{leaveData.earned?.balance ?? 0}</strong></span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-1.5 mb-1">
-                  <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (leaveData.earned.used / 18) * 100)}%` }}></div>
+                  <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, ((leaveData.earned?.used ?? 0) / 18) * 100)}%` }}></div>
                 </div>
               </div>
               
@@ -251,16 +255,16 @@ export default function EmployeeDashboard({ user, payslips, claims, onChangeView
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs font-bold text-slate-600">Casual/Sick</span>
-                  <span className="text-xs font-black text-[#021934]">{leaveData.casual.balance} Available</span>
+                  <span className="text-xs font-black text-[#021934]">{leaveData.casual?.balance ?? 0} Available</span>
                 </div>
                 <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                  <span>Limit: {leaveData.casual.limit}</span>
-                  <span>Used: {leaveData.casual.used}</span>
+                  <span>Limit: {leaveData.casual?.limit ?? 0}</span>
+                  <span>Used: {leaveData.casual?.used ?? 0}</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-1.5 mb-1">
-                  <div className="bg-orange-500 h-1.5 rounded-full" style={{ width: `${(leaveData.casual.used / leaveData.casual.limit) * 100}%` }}></div>
+                  <div className="bg-orange-500 h-1.5 rounded-full" style={{ width: `${((leaveData.casual?.used ?? 0) / (leaveData.casual?.limit || 1)) * 100}%` }}></div>
                 </div>
-                {leaveData.casual.isProbation && (
+                {leaveData.casual?.isProbation && (
                   <p className="text-[10px] text-orange-600 font-medium mt-1 leading-tight">Probation: Max 1 day/mo. Exceeding is unpaid.</p>
                 )}
               </div>

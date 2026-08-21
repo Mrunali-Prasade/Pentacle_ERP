@@ -19,15 +19,19 @@ export default function AddEmployeeModal({ onClose, triggerToast }: AddEmployeeM
     status: 'permanent'
   });
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;            // guard against a double-click creating two employees
+    setSubmitting(true);
     try {
       const res = await fetch('/api/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEmpData)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         triggerToast('Employee added successfully!');
         onClose();
@@ -36,12 +40,14 @@ export default function AddEmployeeModal({ onClose, triggerToast }: AddEmployeeM
           department: '', designation: '', location: '', join_date: '', status: 'permanent'
         });
         setTimeout(() => window.location.reload(), 1000);
-      } else {
-        alert(data.error || 'Failed to add employee');
+        return;                        // keep the button disabled through the reload
       }
+      alert(data.error || 'Failed to add employee');
+      setSubmitting(false);
     } catch (err: any) {
       console.error(err);
       alert('Error adding employee: ' + err.message);
+      setSubmitting(false);
     }
   };
 
@@ -125,9 +131,10 @@ export default function AddEmployeeModal({ onClose, triggerToast }: AddEmployeeM
           <button
             type="submit"
             form="addEmployeeForm"
-            className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm rounded-xl shadow-md transition-colors"
+            disabled={submitting}
+            className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl shadow-md transition-colors"
           >
-            Create Employee
+            {submitting ? 'Creating…' : 'Create Employee'}
           </button>
         </div>
       </div>

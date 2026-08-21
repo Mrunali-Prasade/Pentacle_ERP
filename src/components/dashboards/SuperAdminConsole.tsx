@@ -38,6 +38,7 @@ interface SuperAdminConsoleProps {
   onPayClaim: (claimId: string, proofFileName: string, proofFileData: string) => void;
   onRunPayroll: (month: string) => void;
   triggerToast: (message: string, variant?: string) => void;
+  onRefresh?: () => void;
 }
 
 type Tab =
@@ -191,7 +192,7 @@ export default function SuperAdminConsole(props: SuperAdminConsoleProps) {
           <div className="flex justify-end">
             <PayrollGenerationControl onRunPayroll={props.onRunPayroll} triggerToast={props.triggerToast} />
           </div>
-          <PayslipManagementSection payslips={props.payslips} triggerToast={props.triggerToast} />
+          <PayslipManagementSection payslips={props.payslips} triggerToast={props.triggerToast} onSaved={props.onRefresh} />
         </div>
       )}
 
